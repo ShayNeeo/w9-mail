@@ -7,6 +7,7 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{AppState, CreateAccountRequest, EmailAccount, InboxQuery, SendEmailRequest, UpdateAccountRequest};
+use crate::email::EmailService;
 
 pub async fn get_accounts(State(state): State<AppState>) -> Result<Json<Vec<EmailAccount>>, StatusCode> {
     let rows = sqlx::query("SELECT id, email, display_name, is_active FROM accounts")
@@ -86,14 +87,54 @@ pub async fn update_account(
 }
 
 pub async fn send_email(
-    State(_state): State<AppState>,
-    Json(_req): Json<SendEmailRequest>,
+    State(state): State<AppState>,
+    Json(req): Json<SendEmailRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    // TODO: Implement email sending using lettre
-    Ok(Json(serde_json::json!({
-        "status": "sent",
-        "message": "Email sent successfully"
-    })))
+    // Look up the sender account in the database
+    let row = sqlx::query("SELECT email, password FROM accounts WHERE email = ? AND is_active = 1")
+        .bind(&req.from)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let (sender_email, sender_password) = match row {
+        Some(row) => (
+            row.get::<String, _>(0),
+            row.get::<String, _>(1),
+        ),
+        None => {
+            return Ok(Json(serde_json::json!({
+                "status": "error",
+                "message": "Sender account not found or inactive"
+            })));
+        }
+    };
+
+    // Create email service and send email
+    let email_service = EmailService::new();
+    match email_service.send_email(
+        &sender_email,
+        &sender_password,
+        &req.to,
+        &req.subject,
+        &req.body,
+        req.cc.as_deref(),
+        req.bcc.as_deref(),
+    ).await {
+        Ok(_) => {
+            Ok(Json(serde_json::json!({
+                "status": "sent",
+                "message": "Email sent successfully"
+            })))
+        }
+        Err(e) => {
+            eprintln!("Failed to send email: {}", e);
+            Ok(Json(serde_json::json!({
+                "status": "error",
+                "message": format!("Failed to send email: {}", e)
+            })))
+        }
+    }
 }
 
 pub async fn get_inbox(

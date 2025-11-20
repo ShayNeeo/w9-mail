@@ -12,8 +12,19 @@ mod handlers;
 use handlers::*;
 
 #[derive(Clone)]
+pub struct MicrosoftOAuthConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    pub client_value: Option<String>,
+    pub tenant_id: String,
+    pub redirect_uri: String,
+    pub scope: String,
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub db: SqlitePool,
+    pub microsoft_oauth: MicrosoftOAuthConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -45,6 +56,10 @@ pub struct SendEmailRequest {
     pub to: String,
     pub subject: String,
     pub body: String,
+    #[serde(default)]
+    pub cc: Option<String>,
+    #[serde(default)]
+    pub bcc: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -81,7 +96,26 @@ async fn main() -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
-    let state = AppState { db };
+    // Load Microsoft OAuth2 configuration
+    let microsoft_oauth = MicrosoftOAuthConfig {
+        client_id: std::env::var("MICROSOFT_CLIENT_ID")
+            .unwrap_or_else(|_| String::new()),
+        client_secret: std::env::var("MICROSOFT_CLIENT_SECRET_ID")
+            .or_else(|_| std::env::var("MICROSOFT_CLIENT_SECRET"))
+            .unwrap_or_else(|_| String::new()),
+        client_value: std::env::var("MICROSOFT_CLIENT_VALUE").ok(),
+        tenant_id: std::env::var("MICROSOFT_TENANT_ID")
+            .unwrap_or_else(|_| String::new()),
+        redirect_uri: std::env::var("MICROSOFT_REDIRECT_URI")
+            .unwrap_or_else(|_| "https://w9.nu/api/auth/callback".to_string()),
+        scope: std::env::var("MICROSOFT_SCOPE")
+            .unwrap_or_else(|_| "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send".to_string()),
+    };
+
+    let state = AppState { 
+        db,
+        microsoft_oauth,
+    };
 
     let app = Router::new()
         .route("/health", get(health_check))
