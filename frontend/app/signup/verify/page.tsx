@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
 type ViewState = 'idle' | 'loading' | 'success' | 'error'
 
-export default function SignupVerifyPage() {
+function SignupVerifyContent() {
   const searchParams = useSearchParams()
   const token = searchParams.get('token') || ''
   const [state, setState] = useState<ViewState>('idle')
@@ -47,6 +47,23 @@ export default function SignupVerifyPage() {
   }, [token])
 
   return (
+    <section className="box">
+      <h2 className="section-title">Status</h2>
+      <p className={`status ${state === 'error' ? 'error' : state === 'success' ? 'success' : 'warning'}`}>{message}</p>
+      <div className="actions">
+        <Link className="button" href="/login">
+          Go to login
+        </Link>
+        <Link className="button ghost" href="/signup">
+          Start over
+        </Link>
+      </div>
+    </section>
+  )
+}
+
+export default function SignupVerifyPage() {
+  return (
     <main className="app">
       <header className="header">
         <h1>W9 Mail / Verify signup</h1>
@@ -74,18 +91,9 @@ export default function SignupVerifyPage() {
         </Link>
       </nav>
 
-      <section className="box">
-        <h2 className="section-title">Status</h2>
-        <p className={`status ${state === 'error' ? 'error' : state === 'success' ? 'success' : 'warning'}`}>{message}</p>
-        <div className="actions">
-          <Link className="button" href="/login">
-            Go to login
-          </Link>
-          <Link className="button ghost" href="/signup">
-            Start over
-          </Link>
-        </div>
-      </section>
+      <Suspense fallback={<section className="box"><p>Loading…</p></section>}>
+        <SignupVerifyContent />
+      </Suspense>
     </main>
   )
 }

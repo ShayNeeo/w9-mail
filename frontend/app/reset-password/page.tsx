@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
-export default function ResetPasswordPage() {
+function ResetPasswordContent() {
   const searchParams = useSearchParams()
   const initialToken = searchParams.get('token') || ''
   const [token, setToken] = useState(initialToken)
@@ -53,6 +53,40 @@ export default function ResetPasswordPage() {
   }
 
   return (
+    <>
+      {message && <div className={`status ${message.type}`}>{message.text}</div>}
+      <section className="box">
+        <h2 className="section-title">Enter token + password</h2>
+        <form className="form" onSubmit={handleSubmit}>
+          <div className="row">
+            <label>Token</label>
+            <input type="text" value={token} onChange={(e) => setToken(e.target.value)} required />
+            <small>The token lives in the reset link (…token=VALUE).</small>
+          </div>
+          <div className="row">
+            <label>New password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+            />
+          </div>
+          <button className="button" type="submit" disabled={loading}>
+            {loading ? 'Resetting…' : 'Reset password'}
+          </button>
+        </form>
+        <p className="hint">
+          Didn&apos;t request this? Ignore the email or <Link href="/profile">trigger a new one</Link>.
+        </p>
+      </section>
+    </>
+  )
+}
+
+export default function ResetPasswordPage() {
+  return (
     <main className="app">
       <header className="header">
         <h1>W9 Mail / Reset password</h1>
@@ -83,34 +117,9 @@ export default function ResetPasswordPage() {
         </Link>
       </nav>
 
-      {message && <div className={`status ${message.type}`}>{message.text}</div>}
-
-      <section className="box">
-        <h2 className="section-title">Enter token + password</h2>
-        <form className="form" onSubmit={handleSubmit}>
-          <div className="row">
-            <label>Token</label>
-            <input type="text" value={token} onChange={(e) => setToken(e.target.value)} required />
-            <small>The token lives in the reset link (…token=VALUE).</small>
-          </div>
-          <div className="row">
-            <label>New password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </div>
-          <button className="button" type="submit" disabled={loading}>
-            {loading ? 'Resetting…' : 'Reset password'}
-          </button>
-        </form>
-        <p className="hint">
-          Didn&apos;t request this? Ignore the email or <Link href="/profile">trigger a new one</Link>.
-        </p>
-      </section>
+      <Suspense fallback={<section className="box"><p>Loading…</p></section>}>
+        <ResetPasswordContent />
+      </Suspense>
     </main>
   )
 }
