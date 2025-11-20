@@ -121,26 +121,28 @@ echo "✓ Packages ready"
 # Ensure modern Node.js (>= 18) is available
 ensure_node() {
     local required_major=18
-    local install_node=false
+    local install_node=0
     if command -v node >/dev/null 2>&1; then
         local node_version
         node_version=$(node -v 2>/dev/null | sed 's/v//;s/-.*//')
         local node_major=${node_version%%.*}
         if ! is_integer "$node_major" || [ "$node_major" -lt "$required_major" ]; then
             echo "Detected Node.js $node_version (<$required_major). Upgrading via NodeSource..."
-            install_node=true
+            install_node=1
         fi
     else
         echo "Node.js not found. Installing via NodeSource..."
-        install_node=true
+        install_node=1
     fi
 
-    if [ "$install_node" = "true" ]; then
+    if [ "$install_node" -eq 1 ]; then
         echo "Setting up Node.js 20.x from NodeSource..."
         curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO_CMD bash - >/dev/null
         $SUDO_CMD apt-get update -qq >/dev/null 2>&1 || true
         $SUDO_CMD apt-get install -y nodejs >/dev/null 2>&1
     fi
+
+    return 0
 }
 
 ensure_node
