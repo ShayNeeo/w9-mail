@@ -1,0 +1,8 @@
+guide.md
+node_modules/
+target/
+*.db
+.env
+.env.local
+.DS_Store
+*.log
