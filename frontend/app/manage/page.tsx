@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSession } from '../../lib/session'
+import Nav from '../components/Nav'
 
 interface EmailAccount {
   id: string
@@ -513,6 +514,31 @@ export default function ManagePage() {
     }
   }
 
+  const handleRoleChange = async (userId: string, newRole: RoleOption) => {
+    if (!session?.token) return
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`
+        },
+        body: JSON.stringify({ role: newRole })
+      })
+      const data = await response.json()
+      if (response.ok) {
+        setMessage({ type: 'success', text: 'User role updated successfully!' })
+        fetchUsers() // Refresh the user list
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Failed to update user role' })
+      }
+    } catch (error) {
+      console.error('Failed to update user role:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    }
+  }
+
   const defaultSenderOptions = [
     ...accounts.map((account) => ({
       value: `account:${account.id}`,
@@ -575,20 +601,7 @@ export default function ManagePage() {
         <p>Register Microsoft senders, flip activation, rotate secrets.</p>
       </header>
 
-      <nav className="nav">
-        <Link className="nav-link" href="/">
-          Composer
-        </Link>
-        <Link className="nav-link active" href="/manage">
-          Manage
-        </Link>
-        <Link className="nav-link" href="/docs">
-          Docs
-        </Link>
-        <Link className="nav-link" href="/profile">
-          Profile
-        </Link>
-      </nav>
+      <Nav active="manage" />
 
       {message && <div className={`status ${message.type}`}>{message.text}</div>}
 

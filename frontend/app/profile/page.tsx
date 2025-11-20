@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useSession } from '../../lib/session'
+import Nav from '../components/Nav'
 
 export default function ProfilePage() {
   const { session, logout } = useSession()
@@ -41,26 +42,7 @@ export default function ProfilePage() {
         <p>Review your access and trigger password resets.</p>
       </header>
 
-      <nav className="nav">
-        <Link className="nav-link" href="/">
-          Composer
-        </Link>
-        <Link className="nav-link" href="/manage">
-          Manage
-        </Link>
-        <Link className="nav-link" href="/docs">
-          Docs
-        </Link>
-        <Link className="nav-link active" href="/profile">
-          Profile
-        </Link>
-        <Link className="nav-link" href="/login">
-          Login
-        </Link>
-        <Link className="nav-link" href="/signup">
-          Signup
-        </Link>
-      </nav>
+      <Nav active="profile" />
 
       {message && <div className={`status ${message.type}`}>{message.text}</div>}
 

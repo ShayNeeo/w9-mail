@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Nav from '../components/Nav'
 
 export default function SignupPage() {
   const [form, setForm] = useState({ email: '', password: '' })
@@ -41,26 +42,7 @@ export default function SignupPage() {
         <p>Register a normal user account and confirm ownership via email.</p>
       </header>
 
-      <nav className="nav">
-        <Link className="nav-link" href="/">
-          Composer
-        </Link>
-        <Link className="nav-link" href="/manage">
-          Manage
-        </Link>
-        <Link className="nav-link" href="/docs">
-          Docs
-        </Link>
-        <Link className="nav-link" href="/profile">
-          Profile
-        </Link>
-        <Link className="nav-link" href="/login">
-          Login
-        </Link>
-        <Link className="nav-link active" href="/signup">
-          Signup
-        </Link>
-      </nav>
+      <Nav active="signup" />
 
       {message && <div className={`status ${message.type}`}>{message.text}</div>}
 

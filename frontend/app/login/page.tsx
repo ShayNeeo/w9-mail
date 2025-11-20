@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession } from '../../lib/session'
+import Nav from '../components/Nav'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -108,26 +108,7 @@ export default function LoginPage() {
         <p>Admins steer the Microsoft relay. Normal users send mail after authenticating.</p>
       </header>
 
-      <nav className="nav">
-        <Link className="nav-link" href="/">
-          Composer
-        </Link>
-        <Link className="nav-link" href="/manage">
-          Manage
-        </Link>
-        <Link className="nav-link" href="/docs">
-          Docs
-        </Link>
-        <Link className="nav-link" href="/profile">
-          Profile
-        </Link>
-        <Link className="nav-link active" href="/login">
-          Login
-        </Link>
-        <Link className="nav-link" href="/signup">
-          Signup
-        </Link>
-      </nav>
+      <Nav active="login" />
 
       {message && <div className={`status ${message.type}`}>{message.text}</div>}
 

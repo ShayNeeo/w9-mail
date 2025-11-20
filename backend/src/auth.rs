@@ -638,7 +638,7 @@ fn build_system_email_html(
         .iter()
         .map(|line| {
             format!(
-                "<p style=\"color:#d4d4d4;font-size:15px;line-height:1.6;margin:0 0 16px;\">{}</p>",
+                "<p style=\"margin:0 0 16px;color:#ffffff;font-size:14px;line-height:1.5;font-family:'Courier New',Courier,monospace;\">{}</p>",
                 html_escape(line)
             )
         })
@@ -653,31 +653,21 @@ fn build_system_email_html(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title}</title>
 </head>
-<body style="background-color:#050505;padding:32px;font-family:'Inter',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+<body style="background:#000;padding:32px;font-family:'Courier New',Courier,monospace;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
     <tr>
       <td align="center">
-        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:520px;background-color:#111214;border:1px solid #1f1f23;border-radius:18px;padding:32px;">
-          <tr>
-            <td>
-              <p style="color:#4ade80;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:0 0 12px;">W9 Mail</p>
-              <h1 style="color:#ffffff;font-size:24px;margin:0 0 16px;">{title}</h1>
-              {paragraphs}
-              <p style="text-align:center;margin:32px 0;">
-                <a href="{button_url}" style="display:inline-block;background:linear-gradient(90deg,#4ade80,#22d3ee);color:#050505;padding:14px 28px;border-radius:999px;font-weight:600;text-decoration:none;">
-                  {button_text}
-                </a>
-              </p>
-              <p style="color:#777;text-align:center;font-size:12px;line-height:1.5;">
-                If the button doesn't work, copy and paste this link:<br />
-                <span style="color:#fff;word-break:break-all;">{button_url}</span>
-              </p>
-              <hr style="border:none;border-top:1px solid #1f1f23;margin:32px 0;" />
-              <p style="color:#555;font-size:12px;line-height:1.5;">
-                Automatic message from the W9 Mail console. Replies are not monitored.
-              </p>
-            </td>
-          </tr>
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px;border:2px solid #ffffff;padding:28px;background:#000;">
+          <tr><td style="text-align:center;">
+            <h1 style="margin:0 0 20px;font-size:20px;letter-spacing:0.05em;text-transform:uppercase;color:#ffffff;font-family:'Courier New',Courier,monospace;">{title}</h1>
+            {paragraphs}
+            <div style="margin:32px 0;text-align:center;">
+              <a href="{button_url}" style="text-decoration:none;display:inline-block;border:2px solid #ffffff;padding:12px 24px;color:#ffffff;background:#000;text-transform:uppercase;font-weight:bold;font-family:'Courier New',Courier,monospace;">{button_text}</a>
+            </div>
+            <p style="margin:0 0 12px;color:#ffffff;font-size:12px;line-height:1.4;font-family:'Courier New',Courier,monospace;word-break:break-word;">If the button doesn't work, copy and paste this link:<br />{button_url}</p>
+            <hr style="border:none;border-top:2px solid #ffffff;margin:32px 0;" />
+            <p style="margin:0;color:#ffffff;font-size:11px;opacity:0.7;font-family:'Courier New',Courier,monospace;line-height:1.4;">Automated message from W9 Mail. Replies are not monitored.</p>
+          </td></tr>
         </table>
       </td>
     </tr>

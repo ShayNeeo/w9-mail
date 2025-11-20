@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useSession } from '../../lib/session'
+import Nav from '../components/Nav'
 
 export default function DocsPage() {
   const { session } = useSession()
@@ -14,20 +15,7 @@ export default function DocsPage() {
         <p>Monochrome reference for the HTTP surface.</p>
       </header>
 
-      <nav className="nav">
-        <Link className="nav-link" href="/">
-          Composer
-        </Link>
-        <Link className="nav-link" href="/manage">
-          Manage
-        </Link>
-        <Link className="nav-link active" href="/docs">
-          Docs
-        </Link>
-        <Link className="nav-link" href="/profile">
-          Profile
-        </Link>
-      </nav>
+      <Nav active="docs" />
 
       {!canView ? (
         <section className="box warning">
