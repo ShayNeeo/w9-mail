@@ -242,9 +242,14 @@ echo "Installing frontend..."
 $SUDO_CMD mkdir -p $FRONTEND_PUBLIC
 $SUDO_CMD rm -rf $FRONTEND_PUBLIC/* 2>/dev/null || true
 
-# Copy Next.js static export output
+# Copy Next.js static export output (if present)
 if [ -d "$ROOT_DIR/frontend/out" ]; then
     $SUDO_CMD cp -r "$ROOT_DIR/frontend/out"/* $FRONTEND_PUBLIC/
+fi
+
+# Ensure public assets (favicons, manifest, etc.) are deployed even if out/ is missing
+if [ -d "$ROOT_DIR/frontend/public" ]; then
+    $SUDO_CMD cp -r "$ROOT_DIR/frontend/public"/* $FRONTEND_PUBLIC/ 2>/dev/null || true
 fi
 
 $SUDO_CMD chown -R root:root $FRONTEND_PUBLIC
