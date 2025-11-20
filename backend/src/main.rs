@@ -48,6 +48,7 @@ pub struct CreateAccountRequest {
 
 #[derive(Deserialize)]
 pub struct UpdateAccountRequest {
+    #[serde(rename = "isActive")]
     pub is_active: Option<bool>,
 }
 

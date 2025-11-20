@@ -73,10 +73,16 @@ export default function ManagePage() {
         body: JSON.stringify({ isActive: !isActive })
       })
       if (response.ok) {
+        const data = await response.json()
         fetchAccounts()
+        setMessage({ type: 'success', text: `Account ${!isActive ? 'activated' : 'deactivated'} successfully` })
+      } else {
+        const error = await response.json().catch(() => ({ message: 'Failed to update account' }))
+        setMessage({ type: 'error', text: error.message || 'Failed to update account' })
       }
     } catch (error) {
       console.error('Failed to update account:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
     }
   }
 

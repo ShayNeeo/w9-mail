@@ -92,7 +92,12 @@ pub async fn update_account(
             .bind(&id)
             .execute(&state.db)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|e| {
+                eprintln!("Database update error: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
     }
 
     let row = sqlx::query("SELECT id, email, display_name, is_active FROM accounts WHERE id = ?")
