@@ -87,9 +87,10 @@ impl EmailService {
             )?;
 
         // Create SMTP transport for Microsoft/Outlook
+        // Port 587 requires STARTTLS (not direct TLS)
         let creds = Credentials::new(from_email.to_string(), from_password.to_string());
         
-        let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay("smtp-mail.outlook.com")?
+        let mailer = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay("smtp-mail.outlook.com")?
             .port(587)
             .credentials(creds)
             .build();
