@@ -11,10 +11,22 @@ interface EmailAccount {
   isActive: boolean
 }
 
+interface EmailAlias {
+  id: string
+  aliasEmail: string
+  displayName?: string | null
+  isActive: boolean
+  accountEmail: string
+  accountDisplayName: string
+  accountIsActive: boolean
+}
+
 export default function Home() {
   const { session, logout } = useSession()
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
+  const [aliases, setAliases] = useState<EmailAlias[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(false)
+  const [loadingAliases, setLoadingAliases] = useState(false)
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
   const [formData, setFormData] = useState({
@@ -27,7 +39,9 @@ export default function Home() {
   })
 
   const canCompose =
-    session && (session.role === 'user' || session.role === 'dev') && !session.mustChangePassword
+    session &&
+    (session.role === 'user' || session.role === 'dev' || session.role === 'admin') &&
+    !session.mustChangePassword
 
   useEffect(() => {
     if (!session?.token) {
@@ -69,6 +83,48 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.token])
 
+  useEffect(() => {
+    if (!session?.token) {
+      setAliases([])
+      setLoadingAliases(false)
+      return
+    }
+
+    const fetchAliases = async () => {
+      setLoadingAliases(true)
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+        const response = await fetch(`${apiUrl}/aliases`, {
+          headers: {
+            Authorization: `Bearer ${session.token}`
+          }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          const active = data.filter(
+            (alias: EmailAlias) => alias.isActive && alias.accountIsActive
+          )
+          setAliases(active)
+          setFormData((prev) => {
+            if (active.length && !prev.from) {
+              return { ...prev, from: active[0].aliasEmail }
+            }
+            return prev
+          })
+        } else if (response.status === 401) {
+          logout()
+        }
+      } catch (error) {
+        console.error('Failed to fetch aliases:', error)
+      } finally {
+        setLoadingAliases(false)
+      }
+    }
+
+    fetchAliases()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.token])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!session?.token) {
@@ -107,7 +163,7 @@ export default function Home() {
           body: ''
         }))
       } else if (response.status === 403) {
-        setMessage({ type: 'error', text: 'Only normal users can send emails.' })
+        setMessage({ type: 'error', text: 'You are not allowed to send email yet.' })
       } else {
         const error = await response.json().catch(() => ({ message: 'Failed to send email' }))
         setMessage({ type: 'error', text: error.message || 'Failed to send email' })
@@ -119,6 +175,18 @@ export default function Home() {
     }
   }
 
+  const senderOptions = [
+    ...accounts.map((account) => ({
+      value: account.email,
+      label: `${account.displayName} (${account.email})`
+    })),
+    ...aliases.map((alias) => ({
+      value: alias.aliasEmail,
+      label: `${alias.displayName || alias.aliasEmail} · via ${alias.accountEmail}`
+    }))
+  ]
+
+  const isLoadingSenders = loadingAccounts || loadingAliases
   const heroSubtitle =
     'Open-source → move the world forward. W9 Mail keeps Microsoft SMTP/IMAP/POP3 programmable so teams can ship automations with confidence.'
 
@@ -160,7 +228,7 @@ export default function Home() {
       {!session && (
         <section className="box">
           <h2 className="section-title">Authentication required</h2>
-          <p>Sign in to unlock the composer. Admins manage senders, normal users dispatch mail.</p>
+          <p>Sign in to unlock the composer. Admins can dispatch mail and manage senders.</p>
           <Link className="button" href="/login">
             Sign in
           </Link>
@@ -178,11 +246,7 @@ export default function Home() {
         <section className="box">
           <h2 className="section-title">Email Composer</h2>
           {!canCompose && session && (
-            <p className="status error">
-              {session.mustChangePassword
-                ? 'Update your password before sending email.'
-                : 'You are signed in as an admin. Switch to a normal user session to send email.'}
-            </p>
+            <p className="status error">Update your password before sending email.</p>
           )}
           {loadingAccounts ? (
             <div>Loading accounts…</div>
@@ -194,16 +258,20 @@ export default function Home() {
                   id="from"
                   value={formData.from}
                   onChange={(e) => setFormData({ ...formData, from: e.target.value })}
-                  required
-                  disabled={!accounts.length}
+                required
+                disabled={!senderOptions.length}
                 >
-                  <option value="">Select sender account</option>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.email}>
-                      {account.displayName} ({account.email})
-                    </option>
-                  ))}
+                <option value="">Select sender</option>
+                {senderOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
                 </select>
+              {isLoadingSenders && <small>Loading senders…</small>}
+              {!isLoadingSenders && !senderOptions.length && (
+                <small>Add an account or alias from Manage to start sending.</small>
+              )}
               </div>
 
               <div className="row">
@@ -287,8 +355,8 @@ export default function Home() {
         <h2 className="section-title">Console Notes</h2>
         <ul className="list">
           <li>Principle: Open-source pipes move the world forward.</li>
-          <li>Sender accounts live under Manage → Admin only.</li>
-          <li>Normal users authenticate and dispatch through this composer.</li>
+          <li>Sender accounts and aliases live under Manage → Admin only.</li>
+          <li>Team members authenticate and dispatch through this composer.</li>
           <li>GitHub issues power the roadmap—drop ideas at /ShayNeeo/w9-mail.</li>
         </ul>
       </section>

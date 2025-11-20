@@ -11,6 +11,17 @@ interface EmailAccount {
   isActive: boolean
 }
 
+interface EmailAlias {
+  id: string
+  aliasEmail: string
+  displayName?: string | null
+  isActive: boolean
+  accountId: string
+  accountEmail: string
+  accountDisplayName: string
+  accountIsActive: boolean
+}
+
 interface UserSummary {
   id: string
   email: string
@@ -23,6 +34,7 @@ type RoleOption = 'admin' | 'dev' | 'user'
 export default function ManagePage() {
   const { session, logout } = useSession()
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
+  const [aliases, setAliases] = useState<EmailAlias[]>([])
   const [users, setUsers] = useState<UserSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
@@ -34,6 +46,13 @@ export default function ManagePage() {
     password: '',
     isActive: true
   })
+  const [aliasForm, setAliasForm] = useState({
+    accountId: '',
+    aliasEmail: '',
+    displayName: '',
+    isActive: true
+  })
+  const [loadingAliases, setLoadingAliases] = useState(false)
   const [userForm, setUserForm] = useState<{
     email: string
     password: string
@@ -52,7 +71,7 @@ export default function ManagePage() {
       return
     }
     const bootstrap = async () => {
-      await Promise.all([fetchAccounts(), fetchUsers()])
+      await Promise.all([fetchAccounts(), fetchAliases(), fetchUsers()])
       setLoading(false)
     }
     bootstrap()
@@ -76,6 +95,33 @@ export default function ManagePage() {
       console.error('Failed to fetch accounts:', error)
     }
   }
+
+  const fetchAliases = async () => {
+    if (!session?.token) return
+    setLoadingAliases(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/aliases`, {
+        headers: { Authorization: `Bearer ${session.token}` }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAliases(data)
+      } else if (response.status === 401) {
+        logout()
+      }
+    } catch (error) {
+      console.error('Failed to fetch aliases:', error)
+    } finally {
+      setLoadingAliases(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!aliasForm.accountId && accounts.length) {
+      setAliasForm((prev) => ({ ...prev, accountId: accounts[0].id }))
+    }
+  }, [accounts, aliasForm.accountId])
 
   const fetchUsers = async () => {
     if (!session?.token) return
@@ -122,6 +168,52 @@ export default function ManagePage() {
     }
   }
 
+  const handleAliasSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!session?.token) return
+    if (!aliasForm.accountId || !aliasForm.aliasEmail.trim()) {
+      setMessage({ type: 'error', text: 'Alias email and credential are required' })
+      return
+    }
+    setMessage(null)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const payload = {
+        accountId: aliasForm.accountId,
+        aliasEmail: aliasForm.aliasEmail.trim(),
+        displayName: aliasForm.displayName.trim() ? aliasForm.displayName.trim() : undefined,
+        isActive: aliasForm.isActive
+      }
+      const response = await fetch(`${apiUrl}/aliases`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`
+        },
+        body: JSON.stringify(payload)
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAliases((prev) => [...prev, data])
+        setMessage({ type: 'success', text: 'Alias added successfully' })
+        setAliasForm((prev) => ({
+          ...prev,
+          aliasEmail: '',
+          displayName: ''
+        }))
+        await fetchAliases()
+      } else if (response.status === 409) {
+        setMessage({ type: 'error', text: 'Alias email already exists' })
+      } else {
+        const error = await response.json().catch(() => ({ message: 'Failed to create alias' }))
+        setMessage({ type: 'error', text: error.message || 'Failed to create alias' })
+      }
+    } catch (error) {
+      console.error('Failed to create alias:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    }
+  }
+
   const toggleActive = async (id: string, isActive: boolean) => {
     if (!session?.token) return
     try {
@@ -137,6 +229,11 @@ export default function ManagePage() {
       if (response.ok) {
         const data = await response.json()
         setAccounts((prev) => prev.map((acc) => (acc.id === id ? { ...acc, isActive: data.isActive } : acc)))
+        setAliases((prev) =>
+          prev.map((alias) =>
+            alias.accountId === id ? { ...alias, accountIsActive: data.isActive } : alias
+          )
+        )
         setMessage({ type: 'success', text: `Account ${!isActive ? 'activated' : 'deactivated'} successfully` })
       } else {
         const error = await response.json().catch(() => ({ message: 'Failed to update account' }))
@@ -144,6 +241,56 @@ export default function ManagePage() {
       }
     } catch (error) {
       console.error('Failed to update account:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    }
+  }
+
+  const toggleAliasActive = async (id: string, isActive: boolean) => {
+    if (!session?.token) return
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/aliases/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`
+        },
+        body: JSON.stringify({ isActive: !isActive })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAliases((prev) => prev.map((alias) => (alias.id === id ? data : alias)))
+        setMessage({ type: 'success', text: `Alias ${!isActive ? 'activated' : 'deactivated'} successfully` })
+      } else {
+        const error = await response.json().catch(() => ({ message: 'Failed to update alias' }))
+        setMessage({ type: 'error', text: error.message || 'Failed to update alias' })
+      }
+    } catch (error) {
+      console.error('Failed to update alias:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    }
+  }
+
+  const handleDeleteAlias = async (id: string) => {
+    if (!session?.token) return
+    if (!window.confirm('Delete this alias? This cannot be undone.')) {
+      return
+    }
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/aliases/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.token}` }
+      })
+      if (response.ok || response.status === 204) {
+        setAliases((prev) => prev.filter((alias) => alias.id !== id))
+        setMessage({ type: 'success', text: 'Alias removed' })
+      } else {
+        const error = await response.json().catch(() => ({ message: 'Failed to delete alias' }))
+        setMessage({ type: 'error', text: error.message || 'Failed to delete alias' })
+      }
+    } catch (error) {
+      console.error('Failed to delete alias:', error)
       setMessage({ type: 'error', text: 'Network error. Please try again.' })
     }
   }
@@ -189,6 +336,7 @@ export default function ManagePage() {
       })
       if (response.ok || response.status === 204) {
         setAccounts((prev) => prev.filter((acc) => acc.id !== id))
+        setAliases((prev) => prev.filter((alias) => alias.accountId !== id))
         setMessage({ type: 'success', text: 'Account removed' })
       } else {
         const error = await response.json().catch(() => ({ message: 'Failed to delete account' }))
@@ -392,6 +540,103 @@ export default function ManagePage() {
             Add account
           </button>
         </form>
+      </section>
+
+      <section className="box">
+        <h2 className="section-title">Sender aliases</h2>
+        <form className="form" onSubmit={handleAliasSubmit}>
+          <div className="row">
+            <label>Credential</label>
+            <select
+              value={aliasForm.accountId}
+              onChange={(e) => setAliasForm({ ...aliasForm, accountId: e.target.value })}
+              required
+              disabled={!accounts.length}
+            >
+              <option value="">Select credential</option>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.displayName} ({account.email})
+                </option>
+              ))}
+            </select>
+            {!accounts.length && <small>Add an account before creating aliases.</small>}
+          </div>
+          <div className="row">
+            <label>Alias email</label>
+            <input
+              type="email"
+              value={aliasForm.aliasEmail}
+              onChange={(e) => setAliasForm({ ...aliasForm, aliasEmail: e.target.value })}
+              placeholder="alias@domain.com"
+              required
+            />
+          </div>
+          <div className="row">
+            <label>Display name (optional)</label>
+            <input
+              type="text"
+              value={aliasForm.displayName}
+              onChange={(e) => setAliasForm({ ...aliasForm, displayName: e.target.value })}
+              placeholder="Marketing Bot"
+            />
+          </div>
+          <label>
+            <input
+              type="checkbox"
+              checked={aliasForm.isActive}
+              onChange={(e) => setAliasForm({ ...aliasForm, isActive: e.target.checked })}
+            />{' '}
+            active
+          </label>
+          <button className="button" type="submit" disabled={!accounts.length}>
+            Add alias
+          </button>
+        </form>
+
+        {loadingAliases ? (
+          <p>Loading aliases…</p>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Alias</th>
+                  <th>Display</th>
+                  <th>Credential</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aliases.length === 0 && (
+                  <tr>
+                    <td colSpan={5}>No aliases yet.</td>
+                  </tr>
+                )}
+                {aliases.map((alias) => (
+                  <tr key={alias.id}>
+                    <td>{alias.aliasEmail}</td>
+                    <td>{alias.displayName || '—'}</td>
+                    <td>{alias.accountEmail}</td>
+                    <td>
+                      {alias.isActive ? 'Active' : 'Inactive'}
+                      {!alias.accountIsActive && <span className="status error">Credential inactive</span>}
+                    </td>
+                    <td>
+                      <div className="actions">
+                        <button onClick={() => toggleAliasActive(alias.id, alias.isActive)}>
+                          {alias.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button onClick={() => handleDeleteAlias(alias.id)}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="box">

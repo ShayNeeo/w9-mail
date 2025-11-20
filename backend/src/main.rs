@@ -43,6 +43,25 @@ pub struct EmailAccount {
     pub is_active: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EmailAlias {
+    pub id: String,
+    #[serde(rename = "aliasEmail")]
+    pub alias_email: String,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "isActive")]
+    pub is_active: bool,
+    #[serde(rename = "accountId")]
+    pub account_id: String,
+    #[serde(rename = "accountEmail")]
+    pub account_email: String,
+    #[serde(rename = "accountDisplayName")]
+    pub account_display_name: String,
+    #[serde(rename = "accountIsActive")]
+    pub account_is_active: bool,
+}
+
 #[derive(Deserialize)]
 pub struct CreateAccountRequest {
     pub email: String,
@@ -58,6 +77,28 @@ pub struct UpdateAccountRequest {
     #[serde(rename = "isActive")]
     pub is_active: Option<bool>,
     pub password: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateAliasRequest {
+    #[serde(rename = "accountId")]
+    pub account_id: String,
+    #[serde(rename = "aliasEmail")]
+    pub alias_email: String,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "isActive")]
+    pub is_active: bool,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateAliasRequest {
+    #[serde(rename = "accountId")]
+    pub account_id: Option<String>,
+    #[serde(rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(rename = "isActive")]
+    pub is_active: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -100,6 +141,21 @@ async fn main() -> anyhow::Result<()> {
             display_name TEXT NOT NULL,
             password TEXT NOT NULL,
             is_active BOOLEAN NOT NULL DEFAULT 1
+        )
+        "#,
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS aliases (
+            id TEXT PRIMARY KEY,
+            alias_email TEXT UNIQUE NOT NULL,
+            display_name TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            account_id TEXT NOT NULL,
+            FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
         )
         "#,
     )
@@ -162,6 +218,11 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/accounts/:id",
             patch(update_account).delete(delete_account),
+        )
+        .route("/api/aliases", get(get_aliases).post(create_alias))
+        .route(
+            "/api/aliases/:id",
+            patch(update_alias).delete(delete_alias),
         )
         .route("/api/send", post(send_email))
         .route("/api/inbox", get(get_inbox))

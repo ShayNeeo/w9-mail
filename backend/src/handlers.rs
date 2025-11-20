@@ -8,7 +8,8 @@ use uuid::Uuid;
 
 use crate::{
     auth::{AuthUser, UserRole},
-    AppState, CreateAccountRequest, EmailAccount, InboxQuery, SendEmailRequest, UpdateAccountRequest,
+    AppState, CreateAccountRequest, CreateAliasRequest, EmailAccount, EmailAlias, InboxQuery,
+    SendEmailRequest, UpdateAccountRequest, UpdateAliasRequest,
 };
 use crate::email::EmailService;
 
@@ -179,46 +180,314 @@ pub async fn delete_account(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn get_aliases(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<Vec<EmailAlias>>, StatusCode> {
+    user.ensure_password_updated()?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT 
+            aliases.id,
+            aliases.alias_email,
+            aliases.display_name,
+            aliases.is_active,
+            aliases.account_id,
+            accounts.email,
+            accounts.display_name,
+            accounts.is_active
+        FROM aliases
+        JOIN accounts ON aliases.account_id = accounts.id
+        ORDER BY aliases.alias_email ASC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let aliases = rows
+        .into_iter()
+        .map(|row| EmailAlias {
+            id: row.get::<String, _>(0),
+            alias_email: row.get::<String, _>(1),
+            display_name: row.get::<Option<String>, _>(2),
+            is_active: row.get::<bool, _>(3),
+            account_id: row.get::<String, _>(4),
+            account_email: row.get::<String, _>(5),
+            account_display_name: row.get::<String, _>(6),
+            account_is_active: row.get::<bool, _>(7),
+        })
+        .collect();
+
+    Ok(Json(aliases))
+}
+
+pub async fn create_alias(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<CreateAliasRequest>,
+) -> Result<Json<EmailAlias>, StatusCode> {
+    user.ensure_password_updated()?;
+    if !matches!(user.role, UserRole::Admin) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let CreateAliasRequest {
+        account_id,
+        alias_email,
+        display_name,
+        is_active,
+    } = req;
+
+    let account_row = sqlx::query(
+        "SELECT id, email, display_name, is_active FROM accounts WHERE id = ?",
+    )
+    .bind(&account_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let account = match account_row {
+        Some(row) => (
+            row.get::<String, _>(0),
+            row.get::<String, _>(1),
+            row.get::<String, _>(2),
+            row.get::<bool, _>(3),
+        ),
+        None => {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+
+    let existing = sqlx::query("SELECT alias_email FROM aliases WHERE alias_email = ?")
+        .bind(&alias_email)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if existing.is_some() {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"
+        INSERT INTO aliases (id, alias_email, display_name, is_active, account_id)
+        VALUES (?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&id)
+    .bind(&alias_email)
+    .bind(&display_name)
+    .bind(is_active)
+    .bind(&account_id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let alias = EmailAlias {
+        id,
+        alias_email,
+        display_name,
+        is_active,
+        account_id: account.0,
+        account_email: account.1,
+        account_display_name: account.2,
+        account_is_active: account.3,
+    };
+
+    Ok(Json(alias))
+}
+
+pub async fn update_alias(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    user: AuthUser,
+    Json(req): Json<UpdateAliasRequest>,
+) -> Result<Json<EmailAlias>, StatusCode> {
+    user.ensure_password_updated()?;
+    if !matches!(user.role, UserRole::Admin) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let UpdateAliasRequest {
+        account_id,
+        display_name,
+        is_active,
+    } = req;
+
+    if account_id.is_none() && display_name.is_none() && is_active.is_none() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if let Some(account_id) = &account_id {
+        let exists = sqlx::query("SELECT id FROM accounts WHERE id = ?")
+            .bind(account_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if exists.is_none() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        sqlx::query("UPDATE aliases SET account_id = ? WHERE id = ?")
+            .bind(account_id)
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    if let Some(display_name) = &display_name {
+        sqlx::query("UPDATE aliases SET display_name = ? WHERE id = ?")
+            .bind(display_name)
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    if let Some(is_active) = is_active {
+        sqlx::query("UPDATE aliases SET is_active = ? WHERE id = ?")
+            .bind(is_active)
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    let row = sqlx::query(
+        r#"
+        SELECT 
+            aliases.id,
+            aliases.alias_email,
+            aliases.display_name,
+            aliases.is_active,
+            aliases.account_id,
+            accounts.email,
+            accounts.display_name,
+            accounts.is_active
+        FROM aliases
+        JOIN accounts ON aliases.account_id = accounts.id
+        WHERE aliases.id = ?
+        "#,
+    )
+    .bind(&id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let alias = EmailAlias {
+        id: row.get::<String, _>(0),
+        alias_email: row.get::<String, _>(1),
+        display_name: row.get::<Option<String>, _>(2),
+        is_active: row.get::<bool, _>(3),
+        account_id: row.get::<String, _>(4),
+        account_email: row.get::<String, _>(5),
+        account_display_name: row.get::<String, _>(6),
+        account_is_active: row.get::<bool, _>(7),
+    };
+
+    Ok(Json(alias))
+}
+
+pub async fn delete_alias(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    user: AuthUser,
+) -> Result<StatusCode, StatusCode> {
+    user.ensure_password_updated()?;
+    if !matches!(user.role, UserRole::Admin) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let result = sqlx::query("DELETE FROM aliases WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if result.rows_affected() == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn send_email(
     State(state): State<AppState>,
     user: AuthUser,
     Json(req): Json<SendEmailRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::User | UserRole::Dev) {
+    if !matches!(user.role, UserRole::User | UserRole::Dev | UserRole::Admin) {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Look up the sender account in the database
-    let row = sqlx::query("SELECT email, password FROM accounts WHERE email = ? AND is_active = 1")
-        .bind(&req.from)
+    let SendEmailRequest {
+        from,
+        to,
+        subject,
+        body,
+        cc,
+        bcc,
+    } = req;
+
+    let from_address = from.trim().to_string();
+    if from_address.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Look up the sender account in the database or via alias
+    let direct_account = sqlx::query(
+        "SELECT email, password FROM accounts WHERE email = ? AND is_active = 1",
+    )
+    .bind(&from_address)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let (auth_email, auth_password) = if let Some(row) = direct_account {
+        (row.get::<String, _>(0), row.get::<String, _>(1))
+    } else {
+        let alias_row = sqlx::query(
+            r#"
+            SELECT accounts.email, accounts.password
+            FROM aliases
+            JOIN accounts ON aliases.account_id = accounts.id
+            WHERE aliases.alias_email = ?
+              AND aliases.is_active = 1
+              AND accounts.is_active = 1
+            "#,
+        )
+        .bind(&from_address)
         .fetch_optional(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let (sender_email, sender_password) = match row {
-        Some(row) => (
-            row.get::<String, _>(0),
-            row.get::<String, _>(1),
-        ),
-        None => {
-            return Ok(Json(serde_json::json!({
-                "status": "error",
-                "message": "Sender account not found or inactive"
-            })));
+        match alias_row {
+            Some(row) => (row.get::<String, _>(0), row.get::<String, _>(1)),
+            None => {
+                return Ok(Json(serde_json::json!({
+                    "status": "error",
+                    "message": "Sender account or alias not found or inactive"
+                })));
+            }
         }
     };
 
     // Create email service and send email
     let email_service = EmailService::new();
     match email_service.send_email(
-        &sender_email,
-        &sender_password,
-        &req.to,
-        &req.subject,
-        &req.body,
-        req.cc.as_deref(),
-        req.bcc.as_deref(),
+        &from_address,
+        &auth_email,
+        &auth_password,
+        &to,
+        &subject,
+        &body,
+        cc.as_deref(),
+        bcc.as_deref(),
     ).await {
         Ok(_) => {
             Ok(Json(serde_json::json!({

@@ -16,8 +16,9 @@ impl EmailService {
 
     pub async fn send_email(
         &self,
-        from_email: &str,
-        from_password: &str,
+        header_from: &str,
+        auth_email: &str,
+        auth_password: &str,
         to: &str,
         subject: &str,
         body: &str,
@@ -25,7 +26,7 @@ impl EmailService {
         bcc: Option<&str>,
     ) -> anyhow::Result<()> {
         // Parse email addresses
-        let from_addr: Mailbox = from_email.parse()?;
+        let from_addr: Mailbox = header_from.parse()?;
         
         // Build recipients list
         let mut to_addresses = Vec::new();
@@ -88,7 +89,7 @@ impl EmailService {
 
         // Create SMTP transport for Microsoft/Outlook
         // Port 587 requires STARTTLS (not direct TLS)
-        let creds = Credentials::new(from_email.to_string(), from_password.to_string());
+        let creds = Credentials::new(auth_email.to_string(), auth_password.to_string());
         
         let mailer = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay("smtp-mail.outlook.com")?
             .port(587)
