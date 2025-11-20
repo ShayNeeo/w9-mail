@@ -92,7 +92,7 @@ fi
 
 # Install packages (only if needed)
 echo "Checking packages..."
-REQUIRED_PKGS="build-essential pkg-config libsqlite3-dev sqlite3 nodejs npm nginx ufw openssl libssl-dev"
+REQUIRED_PKGS="build-essential pkg-config libsqlite3-dev sqlite3 curl gnupg nginx ufw openssl libssl-dev"
 MISSING_PKGS=""
 for pkg in $REQUIRED_PKGS; do
     if ! dpkg -l | grep -q "^ii  $pkg"; then
@@ -105,6 +105,31 @@ if [ -n "$MISSING_PKGS" ]; then
     $SUDO_CMD apt-get install -y $MISSING_PKGS >/dev/null 2>&1 || true
 fi
 echo "✓ Packages ready"
+
+# Ensure modern Node.js (>= 18) is available
+ensure_node() {
+    local required_major=18
+    local install_node=false
+    if command -v node >/dev/null 2>&1; then
+        local node_version
+        node_version=$(node -v 2>/dev/null | sed 's/v//;s/-.*//')
+        local node_major=${node_version%%.*}
+        if ! is_integer "$node_major" || [ "$node_major" -lt "$required_major" ]; then
+            echo "Detected Node.js $node_version (<$required_major). Upgrading via NodeSource..."
+            install_node=true
+        fi
+    else
+        echo "Node.js not found. Installing via NodeSource..."
+        install_node=true
+    fi
+
+    if [ "$install_node" = "true" ]; then
+        curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO_CMD bash -
+        $SUDO_CMD apt-get install -y nodejs >/dev/null 2>&1
+    fi
+}
+
+ensure_node
 
 # Install Rust if needed
 if ! command -v rustc &> /dev/null; then
