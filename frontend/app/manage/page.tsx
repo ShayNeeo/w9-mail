@@ -518,7 +518,7 @@ export default function ManagePage() {
     if (!session?.token) return
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
-      const response = await fetch(`${apiUrl}/users/${userId}/role`, {
+      const response = await fetch(`${apiUrl}/users/${userId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -535,6 +535,34 @@ export default function ManagePage() {
       }
     } catch (error) {
       console.error('Failed to update user role:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    }
+  }
+
+  const handleMustChangePasswordToggle = async (userId: string, currentValue: boolean) => {
+    if (!session?.token) return
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/users/${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`
+        },
+        body: JSON.stringify({ mustChangePassword: !currentValue })
+      })
+      const data = await response.json()
+      if (response.ok) {
+        setMessage({ 
+          type: 'success', 
+          text: `User ${!currentValue ? 'will be required' : 'no longer required'} to change password on next login` 
+        })
+        fetchUsers() // Refresh the user list
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Failed to update password change requirement' })
+      }
+    } catch (error) {
+      console.error('Failed to update password change requirement:', error)
       setMessage({ type: 'error', text: 'Network error. Please try again.' })
     }
   }
@@ -902,8 +930,33 @@ export default function ManagePage() {
               {users.map((user) => (
                 <tr key={user.id}>
                   <td>{user.email}</td>
-                  <td>{user.role}</td>
-                  <td>{user.mustChangePassword ? 'Yes' : 'No'}</td>
+                  <td>
+                    <select
+                      value={user.role}
+                      onChange={(e) => handleRoleChange(user.id, e.target.value as RoleOption)}
+                      style={{ padding: '4px 8px', fontSize: '14px' }}
+                    >
+                      <option value="user">user</option>
+                      <option value="dev">dev</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => handleMustChangePasswordToggle(user.id, user.mustChangePassword)}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '14px',
+                        backgroundColor: user.mustChangePassword ? '#ff6b6b' : '#51cf66',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {user.mustChangePassword ? 'Yes (click to disable)' : 'No (click to require)'}
+                    </button>
+                  </td>
                   <td>
                     <div className="actions">
                       {editingUserPassword === user.id ? (
