@@ -8,30 +8,51 @@ import Nav from '../components/Nav'
 export default function ProfilePage() {
   const { session, logout } = useSession()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [sendingReset, setSendingReset] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({ old: '', new: '', confirm: '' })
+  const [changing, setChanging] = useState(false)
 
-  const requestReset = async () => {
-    if (!session?.email) return
-    setSendingReset(true)
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!session?.token) return
+    
+    if (passwordForm.new !== passwordForm.confirm) {
+      setMessage({ type: 'error', text: 'New passwords do not match' })
+      return
+    }
+    if (passwordForm.new.length < 8) {
+      setMessage({ type: 'error', text: 'Password must be at least 8 characters' })
+      return
+    }
+
+    setChanging(true)
     setMessage(null)
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
-      const response = await fetch(`${apiUrl}/auth/password-reset`, {
+      const response = await fetch(`${apiUrl}/auth/change-password`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: session.email })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`
+        },
+        body: JSON.stringify({
+          current_password: passwordForm.old,
+          new_password: passwordForm.new
+        })
       })
-      const data = await response.json().catch(() => ({ message: 'Request sent' }))
+      const data = await response.json().catch(() => ({ message: 'Failed to change password' }))
       if (response.ok) {
-        setMessage({ type: 'success', text: data.message || 'Reset email dispatched.' })
+        setMessage({ type: 'success', text: data.message || 'Password updated successfully' })
+        setPasswordForm({ old: '', new: '', confirm: '' })
+        setChangingPassword(false)
       } else {
-        setMessage({ type: 'error', text: data.message || 'Unable to send reset email.' })
+        setMessage({ type: 'error', text: data.message || data.error || 'Failed to change password' })
       }
     } catch (error) {
-      console.error('Failed to request reset:', error)
+      console.error('Failed to change password:', error)
       setMessage({ type: 'error', text: 'Network error. Please try again.' })
     } finally {
-      setSendingReset(false)
+      setChanging(false)
     }
   }
 
@@ -71,13 +92,63 @@ export default function ProfilePage() {
           </section>
 
           <section className="box">
-            <h2 className="section-title">Password reset</h2>
-            <p>We email a secure link from the default sender. Follow it within 30 minutes to set a new password.</p>
-            <button className="button" onClick={requestReset} disabled={sendingReset}>
-              {sendingReset ? 'Sending…' : 'Send reset email'}
-            </button>
+            <h2 className="section-title">Change Password</h2>
+            {!changingPassword ? (
+              <>
+                <p>Update your password. You'll need to provide your current password.</p>
+                <button className="button" onClick={() => setChangingPassword(true)}>
+                  Change Password
+                </button>
+              </>
+            ) : (
+              <form className="form" onSubmit={handleChangePassword}>
+                <div className="row">
+                  <label>Old Password</label>
+                  <input
+                    type="password"
+                    value={passwordForm.old}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, old: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="row">
+                  <label>New Password</label>
+                  <input
+                    type="password"
+                    value={passwordForm.new}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
+                    required
+                    minLength={8}
+                  />
+                </div>
+                <div className="row">
+                  <label>Confirm New Password</label>
+                  <input
+                    type="password"
+                    value={passwordForm.confirm}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
+                    required
+                    minLength={8}
+                  />
+                </div>
+                <button className="button" type="submit" disabled={changing}>
+                  {changing ? 'Changing…' : 'Change Password'}
+                </button>
+                <button
+                  className="button subtle"
+                  type="button"
+                  onClick={() => {
+                    setChangingPassword(false)
+                    setPasswordForm({ old: '', new: '', confirm: '' })
+                    setMessage(null)
+                  }}
+                >
+                  Cancel
+                </button>
+              </form>
+            )}
             <p className="hint">
-              Already have a token? Go to the <Link href="/reset-password">reset portal</Link>.
+              Forgot your password? Go to the <Link href="/login">login page</Link> to request a reset.
             </p>
           </section>
         </>

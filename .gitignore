@@ -6,3 +6,4 @@ target/
 .env.local
 .DS_Store
 *.log
+api_docs.json

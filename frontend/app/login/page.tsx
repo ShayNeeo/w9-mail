@@ -14,6 +14,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ current: '', next: '' })
+  const [showReset, setShowReset] = useState(false)
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetLoading, setResetLoading] = useState(false)
 
   useEffect(() => {
     if (!session) return
@@ -82,8 +85,8 @@ export default function LoginPage() {
           Authorization: `Bearer ${session.token}`
         },
         body: JSON.stringify({
-          currentPassword: passwordForm.current,
-          newPassword: passwordForm.next
+          current_password: passwordForm.current,
+          new_password: passwordForm.next
         })
       })
       if (!response.ok) {
@@ -99,6 +102,33 @@ export default function LoginPage() {
     } catch (error) {
       console.error('Failed to change password:', error)
       setMessage({ type: 'error', text: 'Network error' })
+    }
+  }
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setResetLoading(true)
+    setMessage(null)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/auth/password-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail })
+      })
+      const data = await response.json().catch(() => ({ message: 'Request sent' }))
+      if (response.ok) {
+        setMessage({ type: 'success', text: data.message || 'If the email exists, a reset link was sent.' })
+        setShowReset(false)
+        setResetEmail('')
+      } else {
+        setMessage({ type: 'error', text: data.message || 'Unable to send reset email.' })
+      }
+    } catch (error) {
+      console.error('Failed to request reset:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -140,8 +170,33 @@ export default function LoginPage() {
             </button>
           </form>
           <p className="hint">
-            New here? <Link href="/signup">Create an account</Link>. Need a reset? Visit your{' '}
-            <Link href="/profile">profile</Link> to trigger the email flow.
+            New here? <Link href="/signup">Create an account</Link>.
+          </p>
+          <p className="hint">
+            <a href="#" onClick={(e) => { e.preventDefault(); setShowReset(true); setResetEmail(form.email); }}>Forgot password?</a>
+          </p>
+        </section>
+      )}
+
+      {!session && showReset && (
+        <section className="box">
+          <h2 className="section-title">Reset Password</h2>
+          <form className="form" onSubmit={handlePasswordReset}>
+            <div className="row">
+              <label>Email</label>
+              <input
+                type="email"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                required
+              />
+            </div>
+            <button className="button" type="submit" disabled={resetLoading}>
+              {resetLoading ? 'Sending…' : 'Send Reset Link'}
+            </button>
+          </form>
+          <p className="hint">
+            <a href="#" onClick={(e) => { e.preventDefault(); setShowReset(false); setResetEmail(''); setMessage(null); }}>Back to login</a>
           </p>
         </section>
       )}
