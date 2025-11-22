@@ -34,6 +34,7 @@ pub struct AppState {
     pub microsoft_oauth: MicrosoftOAuthConfig,
     pub jwt_secret: String,
     pub app_base_url: String,
+    pub turnstile_secret: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -268,11 +269,14 @@ async fn main() -> anyhow::Result<()> {
     let app_base_url =
         std::env::var("APP_WEB_BASE_URL").unwrap_or_else(|_| "https://w9.nu".to_string());
 
+    let turnstile_secret = std::env::var("TURNSTILE_SECRET_KEY").ok().filter(|v| !v.trim().is_empty());
+    
     let state = AppState {
         db,
         microsoft_oauth,
         jwt_secret,
         app_base_url,
+        turnstile_secret,
     };
 
     let app = Router::new()

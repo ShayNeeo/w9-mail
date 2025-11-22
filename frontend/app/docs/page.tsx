@@ -6,7 +6,6 @@ import Nav from '../components/Nav'
 
 export default function DocsPage() {
   const { session } = useSession()
-  const canView = session && (session.role === 'admin' || session.role === 'dev')
 
   return (
     <main className="app">
@@ -17,16 +16,7 @@ export default function DocsPage() {
 
       <Nav active="docs" />
 
-      {!canView ? (
-        <section className="box warning">
-          <h2 className="section-title">Restricted</h2>
-          <p>Only developer and admin roles can see the API surface. Sign in with elevated credentials.</p>
-          <Link className="button" href="/login">
-            Go to login
-          </Link>
-        </section>
-      ) : (
-        <>
+      <>
           <section className="box">
             <h2 className="section-title">Base URL</h2>
             <code>http://localhost:8080/api</code>
@@ -272,8 +262,6 @@ limit=50
               `}</pre>
             </article>
           </section>
-        </>
-      )}
     </main>
   )
 }

@@ -44,7 +44,7 @@ pub async fn create_account(
     Json(req): Json<CreateAccountRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::Admin) {
+    if !matches!(user.role, UserRole::Admin | UserRole::Dev) {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -235,7 +235,7 @@ pub async fn create_alias(
     Json(req): Json<CreateAliasRequest>,
 ) -> Result<Json<EmailAlias>, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::Admin) {
+    if !matches!(user.role, UserRole::Admin | UserRole::Dev) {
         return Err(StatusCode::FORBIDDEN);
     }
 

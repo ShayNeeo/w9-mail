@@ -3,14 +3,21 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Nav from '../components/Nav'
+import Turnstile from '../components/Turnstile'
 
 export default function SignupPage() {
   const [form, setForm] = useState({ email: '', password: '' })
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+    if (siteKey && !turnstileToken) {
+      setMessage({ type: 'error', text: 'Please complete the security check' })
+      return
+    }
     setLoading(true)
     setMessage(null)
     try {
@@ -18,7 +25,7 @@ export default function SignupPage() {
       const response = await fetch(`${apiUrl}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ ...form, turnstile_token: turnstileToken })
       })
       const data = await response.json().catch(() => ({ message: 'Failed to register' }))
       if (response.ok && data.status === 'pending') {
@@ -69,6 +76,10 @@ export default function SignupPage() {
             />
             <small>Minimum 8 characters. You can rotate it later from Profile.</small>
           </div>
+          <Turnstile 
+            onVerify={(token) => setTurnstileToken(token)}
+            onError={() => setTurnstileToken(null)}
+          />
           <button className="button" type="submit" disabled={loading}>
             {loading ? 'Submitting…' : 'Create account'}
           </button>

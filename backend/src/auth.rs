@@ -22,6 +22,34 @@ use crate::{email::EmailService, mailer, AppState};
 
 const TOKEN_TTL_HOURS: i64 = 12;
 
+async fn verify_turnstile(secret: &str, token: &str) -> Result<bool, String> {
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "secret": secret,
+        "response": token,
+    });
+    
+    match client
+        .post("https://challenges.cloudflare.com/turnstile/v0/siteverify")
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            match resp.json::<serde_json::Value>().await {
+                Ok(data) => {
+                    let success = data.get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    Ok(success)
+                }
+                Err(e) => Err(format!("Failed to parse Turnstile response: {}", e))
+            }
+        }
+        Err(e) => Err(format!("Failed to verify Turnstile token: {}", e))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum UserRole {
@@ -83,6 +111,8 @@ struct Claims {
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub turnstile_token: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -131,6 +161,8 @@ pub struct UpdateUserRequest {
 pub struct SignupRequest {
     pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub turnstile_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -141,6 +173,8 @@ pub struct SignupVerifyRequest {
 #[derive(Deserialize)]
 pub struct PasswordResetRequest {
     pub email: String,
+    #[serde(default)]
+    pub turnstile_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -148,6 +182,8 @@ pub struct PasswordResetConfirmRequest {
     pub token: String,
     #[serde(rename = "newPassword")]
     pub new_password: String,
+    #[serde(default)]
+    pub turnstile_token: Option<String>,
 }
 
 #[async_trait]
@@ -269,6 +305,19 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, StatusCode> {
+    // Verify Turnstile token if secret is configured
+    if let Some(secret) = &state.turnstile_secret {
+        if let Some(token) = &payload.turnstile_token {
+            match verify_turnstile(secret, token).await {
+                Ok(true) => {},
+                Ok(false) => return Err(StatusCode::BAD_REQUEST),
+                Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+            }
+        } else {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
     let row = sqlx::query(
         "SELECT id, email, password_hash, role, must_change_password FROM users WHERE email = ?",
     )
@@ -472,6 +521,18 @@ pub async fn request_password_reset(
     State(state): State<AppState>,
     Json(payload): Json<PasswordResetRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Verify Turnstile token if secret is configured
+    if let Some(secret) = &state.turnstile_secret {
+        if let Some(token) = &payload.turnstile_token {
+            match verify_turnstile(secret, token).await {
+                Ok(true) => {},
+                Ok(false) => return Err(StatusCode::BAD_REQUEST),
+                Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+            }
+        } else {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
     let email = normalize_email(&payload.email);
     if email.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
@@ -563,6 +624,19 @@ pub async fn confirm_password_reset(
     State(state): State<AppState>,
     Json(payload): Json<PasswordResetConfirmRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Verify Turnstile token if secret is configured
+    if let Some(secret) = &state.turnstile_secret {
+        if let Some(token) = &payload.turnstile_token {
+            match verify_turnstile(secret, token).await {
+                Ok(true) => {},
+                Ok(false) => return Err(StatusCode::BAD_REQUEST),
+                Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+            }
+        } else {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+
     if payload.new_password.len() < 8 {
         return Err(StatusCode::BAD_REQUEST);
     }

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import Turnstile from '../components/Turnstile'
 
 function ResetPasswordContent() {
   const searchParams = useSearchParams()
@@ -11,6 +12,7 @@ function ResetPasswordContent() {
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
 
   useEffect(() => {
     if (initialToken) {
@@ -28,6 +30,11 @@ function ResetPasswordContent() {
       setMessage({ type: 'error', text: 'New password required' })
       return
     }
+    const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+    if (siteKey && !turnstileToken) {
+      setMessage({ type: 'error', text: 'Please complete the security check' })
+      return
+    }
     setLoading(true)
     setMessage(null)
     try {
@@ -35,7 +42,7 @@ function ResetPasswordContent() {
       const response = await fetch(`${apiUrl}/auth/password-reset/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword: password })
+        body: JSON.stringify({ token, newPassword: password, turnstile_token: turnstileToken })
       })
       const data = await response.json().catch(() => ({ message: 'Reset failed' }))
       if (response.ok && data.status === 'success') {
@@ -73,6 +80,10 @@ function ResetPasswordContent() {
               minLength={8}
             />
           </div>
+          <Turnstile 
+            onVerify={(token) => setTurnstileToken(token)}
+            onError={() => setTurnstileToken(null)}
+          />
           <button className="button" type="submit" disabled={loading}>
             {loading ? 'Resetting…' : 'Reset password'}
           </button>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useSession } from '../../lib/session'
 import Nav from '../components/Nav'
 import Link from 'next/link'
+import Turnstile from '../components/Turnstile'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -17,6 +18,8 @@ export default function LoginPage() {
   const [showReset, setShowReset] = useState(false)
   const [resetEmail, setResetEmail] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [resetTurnstileToken, setResetTurnstileToken] = useState<string | null>(null)
 
   useEffect(() => {
     if (!session) return
@@ -34,6 +37,11 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+    if (siteKey && !turnstileToken) {
+      setMessage({ type: 'error', text: 'Please complete the security check' })
+      return
+    }
     setLoading(true)
     setMessage(null)
     try {
@@ -41,7 +49,7 @@ export default function LoginPage() {
       const response = await fetch(`${apiUrl}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ ...form, turnstile_token: turnstileToken })
       })
       if (!response.ok) {
         setMessage({ type: 'error', text: 'Invalid credentials' })
@@ -107,6 +115,11 @@ export default function LoginPage() {
 
   const handlePasswordReset = async (e: React.FormEvent) => {
     e.preventDefault()
+    const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+    if (siteKey && !resetTurnstileToken) {
+      setMessage({ type: 'error', text: 'Please complete the security check' })
+      return
+    }
     setResetLoading(true)
     setMessage(null)
     try {
@@ -114,7 +127,7 @@ export default function LoginPage() {
       const response = await fetch(`${apiUrl}/auth/password-reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: resetEmail })
+        body: JSON.stringify({ email: resetEmail, turnstile_token: resetTurnstileToken })
       })
       const data = await response.json().catch(() => ({ message: 'Request sent' }))
       if (response.ok) {
@@ -165,6 +178,10 @@ export default function LoginPage() {
                 required
               />
             </div>
+            <Turnstile 
+              onVerify={(token) => setTurnstileToken(token)}
+              onError={() => setTurnstileToken(null)}
+            />
             <button className="button" type="submit" disabled={loading}>
               {loading ? 'Signing in…' : 'Sign in'}
             </button>
@@ -191,6 +208,10 @@ export default function LoginPage() {
                 required
               />
             </div>
+            <Turnstile 
+              onVerify={(token) => setResetTurnstileToken(token)}
+              onError={() => setResetTurnstileToken(null)}
+            />
             <button className="button" type="submit" disabled={resetLoading}>
               {resetLoading ? 'Sending…' : 'Send Reset Link'}
             </button>

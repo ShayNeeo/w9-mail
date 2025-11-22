@@ -271,9 +271,17 @@ if [ "$FRONTEND_NEEDS_BUILD" = "true" ]; then
         npm install --prefer-offline --no-audit 2>&1 | tail -1
     fi
     echo "Running npm run build..."
-    if ! npm run build; then
-        echo "ERROR: Frontend build failed"
-        exit 1
+    # Build with Turnstile site key if provided
+    if [ -n "${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}" ]; then
+        if ! NEXT_PUBLIC_TURNSTILE_SITE_KEY="$NEXT_PUBLIC_TURNSTILE_SITE_KEY" npm run build; then
+            echo "ERROR: Frontend build failed"
+            exit 1
+        fi
+    else
+        if ! npm run build; then
+            echo "ERROR: Frontend build failed"
+            exit 1
+        fi
     fi
     # With next.config.js `output: 'export'`, `next build` already writes to `out/`
     if [ ! -d "out" ]; then
@@ -368,6 +376,7 @@ MICROSOFT_REDIRECT_URI=${MICROSOFT_REDIRECT_URI:-https://w9.nu/api/auth/callback
 MICROSOFT_SCOPE=${MICROSOFT_SCOPE:-https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send}
 JWT_SECRET=$JWT_SECRET_VALUE
 APP_WEB_BASE_URL=$APP_WEB_BASE_URL
+TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
 EOF
 
 # Systemd unit
