@@ -578,7 +578,8 @@ export default function ManagePage() {
     }))
   ]
 
-  const requiresAdmin = session && session.role !== 'admin'
+  const isAdmin = session && session.role === 'admin'
+  const isDevOrAdmin = session && (session.role === 'admin' || session.role === 'dev')
 
   if (loading) {
     return (
@@ -605,15 +606,15 @@ export default function ManagePage() {
     )
   }
 
-  if (requiresAdmin) {
+  if (!isDevOrAdmin) {
     return (
       <main className="app">
         <header className="header">
           <h1>W9 Mail / Accounts</h1>
-          <p>Only admins can manage the Microsoft sender registry.</p>
+          <p>Only dev users and admins can manage the Microsoft sender registry.</p>
         </header>
         <section className="box">
-          <p>This section is locked. Sign in with an admin profile.</p>
+          <p>This section is locked. Sign in with a dev or admin profile.</p>
           <button className="button subtle" onClick={logout}>
             Switch account
           </button>
@@ -680,41 +681,43 @@ export default function ManagePage() {
         </form>
       </section>
 
-      <section className="box">
-        <h2 className="section-title">System sender (verification + reset)</h2>
-        <p>Automatic emails are dispatched through this sender. Pick an active credential or alias.</p>
-        <form className="form" onSubmit={handleDefaultSenderSave}>
-          <div className="row">
-            <label>Sender</label>
-            <select
-              value={defaultSelection}
-              onChange={(e) => setDefaultSelection(e.target.value)}
-              disabled={!defaultSenderOptions.length || savingDefault}
-            >
-              <option value="">Select sender</option>
-              {defaultSenderOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {!defaultSenderOptions.length && (
-              <small>Add an account or alias to enable automatic emails.</small>
-            )}
-          </div>
-          <button className="button" type="submit" disabled={!defaultSenderOptions.length || savingDefault}>
-            {savingDefault ? 'Saving…' : defaultSender ? 'Update default' : 'Set default'}
-          </button>
-        </form>
-        {defaultSender ? (
-          <div className="status success">
-            Default: {defaultSender.displayLabel} ({defaultSender.email})
-            {defaultSender.viaDisplay && <span> · {defaultSender.viaDisplay}</span>}
-          </div>
-        ) : (
-          <div className="status warning">System emails are disabled until a default sender is set.</div>
-        )}
-      </section>
+      {isAdmin && (
+        <section className="box">
+          <h2 className="section-title">System sender (verification + reset)</h2>
+          <p>Automatic emails are dispatched through this sender. Pick an active credential or alias.</p>
+          <form className="form" onSubmit={handleDefaultSenderSave}>
+            <div className="row">
+              <label>Sender</label>
+              <select
+                value={defaultSelection}
+                onChange={(e) => setDefaultSelection(e.target.value)}
+                disabled={!defaultSenderOptions.length || savingDefault}
+              >
+                <option value="">Select sender</option>
+                {defaultSenderOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {!defaultSenderOptions.length && (
+                <small>Add an account or alias to enable automatic emails.</small>
+              )}
+            </div>
+            <button className="button" type="submit" disabled={!defaultSenderOptions.length || savingDefault}>
+              {savingDefault ? 'Saving…' : defaultSender ? 'Update default' : 'Set default'}
+            </button>
+          </form>
+          {defaultSender ? (
+            <div className="status success">
+              Default: {defaultSender.displayLabel} ({defaultSender.email})
+              {defaultSender.viaDisplay && <span> · {defaultSender.viaDisplay}</span>}
+            </div>
+          ) : (
+            <div className="status warning">System emails are disabled until a default sender is set.</div>
+          )}
+        </section>
+      )}
 
       <section className="box">
         <h2 className="section-title">Sender aliases</h2>
@@ -798,12 +801,16 @@ export default function ManagePage() {
                       {!alias.accountIsActive && <span className="status error">Credential inactive</span>}
                     </td>
                     <td>
-                      <div className="actions">
-                        <button onClick={() => toggleAliasActive(alias.id, alias.isActive)}>
-                          {alias.isActive ? 'Deactivate' : 'Activate'}
-                        </button>
-                        <button onClick={() => handleDeleteAlias(alias.id)}>Delete</button>
-                      </div>
+                      {isAdmin ? (
+                        <div className="actions">
+                          <button onClick={() => toggleAliasActive(alias.id, alias.isActive)}>
+                            {alias.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                          <button onClick={() => handleDeleteAlias(alias.id)}>Delete</button>
+                        </div>
+                      ) : (
+                        <span>—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -832,45 +839,49 @@ export default function ManagePage() {
                   <td>{account.displayName}</td>
                   <td>{account.isActive ? 'Active' : 'Inactive'}</td>
                   <td>
-                    <div className="actions">
-                      <button onClick={() => toggleActive(account.id, account.isActive)}>
-                        {account.isActive ? 'Deactivate' : 'Activate'}
-                      </button>
-                      {editingPassword === account.id ? (
-                        <div className="password-inline">
-                          <input
-                            type="password"
-                            placeholder="New password"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handlePasswordChange(account.id)
-                              }
-                            }}
-                          />
-                          <button onClick={() => handlePasswordChange(account.id)}>Save</button>
+                    {isAdmin ? (
+                      <div className="actions">
+                        <button onClick={() => toggleActive(account.id, account.isActive)}>
+                          {account.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        {editingPassword === account.id ? (
+                          <div className="password-inline">
+                            <input
+                              type="password"
+                              placeholder="New password"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handlePasswordChange(account.id)
+                                }
+                              }}
+                            />
+                            <button onClick={() => handlePasswordChange(account.id)}>Save</button>
+                            <button
+                              onClick={() => {
+                                setEditingPassword(null)
+                                setNewPassword('')
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
                           <button
                             onClick={() => {
-                              setEditingPassword(null)
+                              setEditingPassword(account.id)
                               setNewPassword('')
                             }}
                           >
-                            Cancel
+                            Change password
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setEditingPassword(account.id)
-                            setNewPassword('')
-                          }}
-                        >
-                          Change password
-                        </button>
-                      )}
-                      <button onClick={() => handleDeleteAccount(account.id)}>Delete</button>
-                    </div>
+                        )}
+                        <button onClick={() => handleDeleteAccount(account.id)}>Delete</button>
+                      </div>
+                    ) : (
+                      <span>—</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -879,8 +890,9 @@ export default function ManagePage() {
         </div>
       </section>
 
-      <section className="box">
-        <h2 className="section-title">User access</h2>
+      {isAdmin && (
+        <section className="box">
+          <h2 className="section-title">User access</h2>
         <form className="form" onSubmit={handleUserCreate}>
           <div className="row">
             <label>User email</label>
@@ -1000,7 +1012,8 @@ export default function ManagePage() {
             </tbody>
           </table>
         </div>
-      </section>
+        </section>
+      )}
     </main>
   )
 }

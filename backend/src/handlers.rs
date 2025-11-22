@@ -20,6 +20,9 @@ pub async fn get_accounts(
     user: AuthUser,
 ) -> Result<Json<Vec<EmailAccount>>, StatusCode> {
     user.ensure_password_updated()?;
+    if !matches!(user.role, UserRole::Admin | UserRole::Dev) {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let rows = sqlx::query("SELECT id, email, display_name, is_active FROM accounts")
         .fetch_all(&state.db)
         .await
@@ -191,6 +194,9 @@ pub async fn get_aliases(
     user: AuthUser,
 ) -> Result<Json<Vec<EmailAlias>>, StatusCode> {
     user.ensure_password_updated()?;
+    if !matches!(user.role, UserRole::Admin | UserRole::Dev) {
+        return Err(StatusCode::FORBIDDEN);
+    }
 
     let rows = sqlx::query(
         r#"
@@ -480,7 +486,7 @@ pub async fn send_email(
     Json(req): Json<SendEmailRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::User | UserRole::Dev | UserRole::Admin) {
+    if !matches!(user.role, UserRole::Dev | UserRole::Admin) {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -544,6 +550,9 @@ pub async fn get_inbox(
     Query(_params): Query<InboxQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     user.ensure_password_updated()?;
+    if !matches!(user.role, UserRole::Dev | UserRole::Admin) {
+        return Err(StatusCode::FORBIDDEN);
+    }
     // TODO: Implement IMAP inbox retrieval
     Ok(Json(serde_json::json!([])))
 }
