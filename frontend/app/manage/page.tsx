@@ -10,6 +10,8 @@ interface EmailAccount {
   email: string
   displayName: string
   isActive: boolean
+  ownerId?: string | null
+  isPublic?: boolean
 }
 
 interface EmailAlias {
@@ -21,6 +23,8 @@ interface EmailAlias {
   accountEmail: string
   accountDisplayName: string
   accountIsActive: boolean
+  ownerId?: string | null
+  isPublic?: boolean
 }
 
 interface DefaultSender {
@@ -55,13 +59,15 @@ export default function ManagePage() {
     email: '',
     displayName: '',
     password: '',
-    isActive: true
+    isActive: true,
+    isPublic: false
   })
   const [aliasForm, setAliasForm] = useState({
     accountId: '',
     aliasEmail: '',
     displayName: '',
-    isActive: true
+    isActive: true,
+    isPublic: false
   })
   const [defaultSelection, setDefaultSelection] = useState('')
   const [savingDefault, setSavingDefault] = useState(false)
@@ -198,7 +204,7 @@ export default function ManagePage() {
       if (response.ok && data.status === 'success') {
         setMessage({ type: 'success', text: data.message || 'Account created successfully!' })
         fetchAccounts()
-        setFormData({ email: '', displayName: '', password: '', isActive: true })
+        setFormData({ email: '', displayName: '', password: '', isActive: true, isPublic: false })
       } else {
         setMessage({ type: 'error', text: data.message || 'Failed to create account' })
       }
@@ -222,7 +228,8 @@ export default function ManagePage() {
         accountId: aliasForm.accountId,
         aliasEmail: aliasForm.aliasEmail.trim(),
         displayName: aliasForm.displayName.trim() ? aliasForm.displayName.trim() : undefined,
-        isActive: aliasForm.isActive
+        isActive: aliasForm.isActive,
+        isPublic: aliasForm.isPublic
       }
       const response = await fetch(`${apiUrl}/aliases`, {
         method: 'POST',
@@ -343,6 +350,58 @@ export default function ManagePage() {
         setAliases((prev) => prev.map((alias) => (alias.id === id ? data : alias)))
         setMessage({ type: 'success', text: `Alias ${!isActive ? 'activated' : 'deactivated'} successfully` })
         await fetchDefaultSender()
+      } else {
+        const error = await response.json().catch(() => ({ message: 'Failed to update alias' }))
+        setMessage({ type: 'error', text: error.message || 'Failed to update alias' })
+      }
+    } catch (error) {
+      console.error('Failed to update alias:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    }
+  }
+
+  const toggleAccountPublic = async (id: string, isPublic: boolean) => {
+    if (!session?.token) return
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/accounts/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`
+        },
+        body: JSON.stringify({ isPublic: !isPublic })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAccounts((prev) => prev.map((acc) => (acc.id === id ? data : acc)))
+        setMessage({ type: 'success', text: `Account ${!isPublic ? 'made public' : 'made private'} successfully` })
+      } else {
+        const error = await response.json().catch(() => ({ message: 'Failed to update account' }))
+        setMessage({ type: 'error', text: error.message || 'Failed to update account' })
+      }
+    } catch (error) {
+      console.error('Failed to update account:', error)
+      setMessage({ type: 'error', text: 'Network error. Please try again.' })
+    }
+  }
+
+  const toggleAliasPublic = async (id: string, isPublic: boolean) => {
+    if (!session?.token) return
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
+      const response = await fetch(`${apiUrl}/aliases/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.token}`
+        },
+        body: JSON.stringify({ isPublic: !isPublic })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAliases((prev) => prev.map((alias) => (alias.id === id ? data : alias)))
+        setMessage({ type: 'success', text: `Alias ${!isPublic ? 'made public' : 'made private'} successfully` })
       } else {
         const error = await response.json().catch(() => ({ message: 'Failed to update alias' }))
         setMessage({ type: 'error', text: error.message || 'Failed to update alias' })
@@ -679,6 +738,14 @@ export default function ManagePage() {
             />{' '}
             active
           </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={formData.isPublic}
+              onChange={(e) => setFormData({ ...formData, isPublic: e.target.checked })}
+            />{' '}
+            public (visible to other users)
+          </label>
           <button className="button" type="submit">
             Add account
           </button>
@@ -770,6 +837,14 @@ export default function ManagePage() {
             />{' '}
             active
           </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={aliasForm.isPublic}
+              onChange={(e) => setAliasForm({ ...aliasForm, isPublic: e.target.checked })}
+            />{' '}
+            public (visible to other users)
+          </label>
           <button className="button" type="submit" disabled={!accounts.length}>
             Add alias
           </button>
@@ -785,6 +860,7 @@ export default function ManagePage() {
                   <th>Alias</th>
                   <th>Display</th>
                   <th>Credential</th>
+                  <th>Owner</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -792,32 +868,49 @@ export default function ManagePage() {
               <tbody>
                 {aliases.length === 0 && (
                   <tr>
-                    <td colSpan={5}>No aliases yet.</td>
+                    <td colSpan={6}>No aliases yet.</td>
                   </tr>
                 )}
-                {aliases.map((alias) => (
-                  <tr key={alias.id}>
-                    <td>{alias.aliasEmail}</td>
-                    <td>{alias.displayName || '—'}</td>
-                    <td>{alias.accountEmail}</td>
-                    <td>
-                      {alias.isActive ? 'Active' : 'Inactive'}
-                      {!alias.accountIsActive && <span className="status error">Credential inactive</span>}
-                    </td>
-                    <td>
-                      {isAdmin ? (
-                        <div className="actions">
-                          <button onClick={() => toggleAliasActive(alias.id, alias.isActive)}>
-                            {alias.isActive ? 'Deactivate' : 'Activate'}
-                          </button>
-                          <button onClick={() => handleDeleteAlias(alias.id)}>Delete</button>
-                        </div>
-                      ) : (
-                        <span>—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {aliases.map((alias) => {
+                  const isOwner = alias.ownerId === session?.id
+                  const canManage = isAdmin || isOwner
+                  return (
+                    <tr key={alias.id}>
+                      <td>{alias.aliasEmail}</td>
+                      <td>{alias.displayName || '—'}</td>
+                      <td>{alias.accountEmail}</td>
+                      <td>
+                        {alias.ownerId ? (alias.ownerId === session?.id ? 'You' : users.find(u => u.id === alias.ownerId)?.email || 'Unknown') : '—'}
+                      </td>
+                      <td>
+                        {alias.isActive ? 'Active' : 'Inactive'}
+                        {!alias.accountIsActive && <span className="status error">Credential inactive</span>}
+                        {alias.isPublic !== undefined && (
+                          <span style={{ marginLeft: '8px', fontSize: '12px', color: alias.isPublic ? '#51cf66' : '#999' }}>
+                            {alias.isPublic ? 'Public' : 'Private'}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {canManage ? (
+                          <div className="actions">
+                            <button onClick={() => toggleAliasActive(alias.id, alias.isActive)}>
+                              {alias.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                            {alias.isPublic !== undefined && (
+                              <button onClick={() => toggleAliasPublic(alias.id, alias.isPublic || false)}>
+                                {alias.isPublic ? 'Make Private' : 'Make Public'}
+                              </button>
+                            )}
+                            <button onClick={() => handleDeleteAlias(alias.id)}>Delete</button>
+                          </div>
+                        ) : (
+                          <span>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -832,63 +925,85 @@ export default function ManagePage() {
               <tr>
                 <th>Email</th>
                 <th>Display</th>
+                <th>Owner</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {accounts.map((account) => (
-                <tr key={account.id}>
-                  <td>{account.email}</td>
-                  <td>{account.displayName}</td>
-                  <td>{account.isActive ? 'Active' : 'Inactive'}</td>
-                  <td>
-                    {isAdmin ? (
-                      <div className="actions">
-                        <button onClick={() => toggleActive(account.id, account.isActive)}>
-                          {account.isActive ? 'Deactivate' : 'Activate'}
-                        </button>
-                        {editingPassword === account.id ? (
-                          <div className="password-inline">
-                            <input
-                              type="password"
-                              placeholder="New password"
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handlePasswordChange(account.id)
-                                }
-                              }}
-                            />
-                            <button onClick={() => handlePasswordChange(account.id)}>Save</button>
-                            <button
-                              onClick={() => {
-                                setEditingPassword(null)
-                                setNewPassword('')
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setEditingPassword(account.id)
-                              setNewPassword('')
-                            }}
-                          >
-                            Change password
+              {accounts.map((account) => {
+                const isOwner = account.ownerId === session?.id
+                const canManage = isAdmin || isOwner
+                return (
+                  <tr key={account.id}>
+                    <td>{account.email}</td>
+                    <td>{account.displayName}</td>
+                    <td>
+                      {account.ownerId ? (account.ownerId === session?.id ? 'You' : users.find(u => u.id === account.ownerId)?.email || 'Unknown') : '—'}
+                    </td>
+                    <td>
+                      {account.isActive ? 'Active' : 'Inactive'}
+                      {account.isPublic !== undefined && (
+                        <span style={{ marginLeft: '8px', fontSize: '12px', color: account.isPublic ? '#51cf66' : '#999' }}>
+                          {account.isPublic ? 'Public' : 'Private'}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {canManage ? (
+                        <div className="actions">
+                          <button onClick={() => toggleActive(account.id, account.isActive)}>
+                            {account.isActive ? 'Deactivate' : 'Activate'}
                           </button>
-                        )}
-                        <button onClick={() => handleDeleteAccount(account.id)}>Delete</button>
-                      </div>
-                    ) : (
-                      <span>—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                          {account.isPublic !== undefined && (
+                            <button onClick={() => toggleAccountPublic(account.id, account.isPublic || false)}>
+                              {account.isPublic ? 'Make Private' : 'Make Public'}
+                            </button>
+                          )}
+                          {editingPassword === account.id ? (
+                            <div className="password-inline">
+                              <input
+                                type="password"
+                                placeholder="New password"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handlePasswordChange(account.id)
+                                  }
+                                }}
+                              />
+                              <button onClick={() => handlePasswordChange(account.id)}>Save</button>
+                              <button
+                                onClick={() => {
+                                  setEditingPassword(null)
+                                  setNewPassword('')
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            isAdmin && (
+                              <button
+                                onClick={() => {
+                                  setEditingPassword(account.id)
+                                  setNewPassword('')
+                                }}
+                              >
+                                Change password
+                              </button>
+                            )
+                          )}
+                          <button onClick={() => handleDeleteAccount(account.id)}>Delete</button>
+                        </div>
+                      ) : (
+                        <span>—</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

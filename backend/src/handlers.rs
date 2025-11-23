@@ -23,7 +23,20 @@ pub async fn get_accounts(
     if !matches!(user.role, UserRole::Admin | UserRole::Dev) {
         return Err(StatusCode::FORBIDDEN);
     }
-    let rows = sqlx::query("SELECT id, email, display_name, is_active FROM accounts")
+    
+    // Admin sees all, others see their own + public
+    let query = if matches!(user.role, UserRole::Admin) {
+        "SELECT id, email, display_name, is_active, owner_id, is_public FROM accounts"
+    } else {
+        "SELECT id, email, display_name, is_active, owner_id, is_public FROM accounts WHERE owner_id = ? OR is_public = 1"
+    };
+    
+    let mut query_builder = sqlx::query(query);
+    if !matches!(user.role, UserRole::Admin) {
+        query_builder = query_builder.bind(&user.id);
+    }
+    
+    let rows = query_builder
         .fetch_all(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -35,6 +48,8 @@ pub async fn get_accounts(
             email: row.get::<String, _>(1),
             display_name: row.get::<String, _>(2),
             is_active: row.get::<bool, _>(3),
+            owner_id: row.get::<Option<String>, _>(4),
+            is_public: row.get::<bool, _>(5),
         })
         .collect();
 
@@ -68,13 +83,15 @@ pub async fn create_account(
     let id = Uuid::new_v4().to_string();
     
     match sqlx::query(
-        "INSERT INTO accounts (id, email, display_name, password, is_active) VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO accounts (id, email, display_name, password, is_active, owner_id, is_public) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&id)
     .bind(&req.email)
     .bind(&req.display_name)
     .bind(&req.password)
     .bind(req.is_active)
+    .bind(&user.id)
+    .bind(req.is_public)
     .execute(&state.db)
     .await {
         Ok(_) => {
@@ -83,6 +100,8 @@ pub async fn create_account(
                 email: req.email,
                 display_name: req.display_name,
                 is_active: req.is_active,
+                owner_id: Some(user.id),
+                is_public: req.is_public,
             };
             Ok(Json(serde_json::json!({
                 "status": "success",
@@ -107,13 +126,30 @@ pub async fn update_account(
     Json(req): Json<UpdateAccountRequest>,
 ) -> Result<Json<EmailAccount>, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::Admin) {
+    
+    // Check ownership or admin
+    let owner_row = sqlx::query("SELECT owner_id FROM accounts WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let owner_id = owner_row.and_then(|row| row.get::<Option<String>, _>(0));
+    let is_owner = owner_id.as_ref().map(|oid| oid == &user.id).unwrap_or(false);
+    let is_admin = matches!(user.role, UserRole::Admin);
+    
+    if !is_owner && !is_admin {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Return error if neither field was provided
-    if req.is_active.is_none() && req.password.is_none() {
+    // Return error if no field was provided
+    if req.is_active.is_none() && req.password.is_none() && req.owner_id.is_none() && req.is_public.is_none() {
         return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Only admin can change ownership
+    if req.owner_id.is_some() && !is_admin {
+        return Err(StatusCode::FORBIDDEN);
     }
 
     // Update is_active if provided
@@ -145,8 +181,34 @@ pub async fn update_account(
             })?;
     }
 
+    // Update owner_id if provided (admin only)
+    if let Some(owner_id) = req.owner_id {
+        sqlx::query("UPDATE accounts SET owner_id = ? WHERE id = ?")
+            .bind(&owner_id)
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| {
+                eprintln!("Database update error: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+    }
+
+    // Update is_public if provided
+    if let Some(is_public) = req.is_public {
+        sqlx::query("UPDATE accounts SET is_public = ? WHERE id = ?")
+            .bind(is_public)
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| {
+                eprintln!("Database update error: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+    }
+
     // Fetch and return updated account
-    let row = sqlx::query("SELECT id, email, display_name, is_active FROM accounts WHERE id = ?")
+    let row = sqlx::query("SELECT id, email, display_name, is_active, owner_id, is_public FROM accounts WHERE id = ?")
         .bind(&id)
         .fetch_one(&state.db)
         .await
@@ -157,6 +219,8 @@ pub async fn update_account(
         email: row.get::<String, _>(1),
         display_name: row.get::<String, _>(2),
         is_active: row.get::<bool, _>(3),
+        owner_id: row.get::<Option<String>, _>(4),
+        is_public: row.get::<bool, _>(5),
     };
 
     Ok(Json(account))
@@ -168,7 +232,19 @@ pub async fn delete_account(
     user: AuthUser,
 ) -> Result<StatusCode, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::Admin) {
+    
+    // Check ownership or admin
+    let owner_row = sqlx::query("SELECT owner_id FROM accounts WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let owner_id = owner_row.and_then(|row| row.get::<Option<String>, _>(0));
+    let is_owner = owner_id.as_ref().map(|oid| oid == &user.id).unwrap_or(false);
+    let is_admin = matches!(user.role, UserRole::Admin);
+    
+    if !is_owner && !is_admin {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -198,7 +274,8 @@ pub async fn get_aliases(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let rows = sqlx::query(
+    // Admin sees all, others see their own + public
+    let query = if matches!(user.role, UserRole::Admin) {
         r#"
         SELECT 
             aliases.id,
@@ -208,15 +285,42 @@ pub async fn get_aliases(
             aliases.account_id,
             accounts.email,
             accounts.display_name,
-            accounts.is_active
+            accounts.is_active,
+            aliases.owner_id,
+            aliases.is_public
         FROM aliases
         JOIN accounts ON aliases.account_id = accounts.id
         ORDER BY aliases.alias_email ASC
-        "#,
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        "#
+    } else {
+        r#"
+        SELECT 
+            aliases.id,
+            aliases.alias_email,
+            aliases.display_name,
+            aliases.is_active,
+            aliases.account_id,
+            accounts.email,
+            accounts.display_name,
+            accounts.is_active,
+            aliases.owner_id,
+            aliases.is_public
+        FROM aliases
+        JOIN accounts ON aliases.account_id = accounts.id
+        WHERE aliases.owner_id = ? OR aliases.is_public = 1
+        ORDER BY aliases.alias_email ASC
+        "#
+    };
+
+    let mut query_builder = sqlx::query(query);
+    if !matches!(user.role, UserRole::Admin) {
+        query_builder = query_builder.bind(&user.id);
+    }
+
+    let rows = query_builder
+        .fetch_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let aliases = rows
         .into_iter()
@@ -229,6 +333,8 @@ pub async fn get_aliases(
             account_email: row.get::<String, _>(5),
             account_display_name: row.get::<String, _>(6),
             account_is_active: row.get::<bool, _>(7),
+            owner_id: row.get::<Option<String>, _>(8),
+            is_public: row.get::<bool, _>(9),
         })
         .collect();
 
@@ -285,8 +391,8 @@ pub async fn create_alias(
     let id = Uuid::new_v4().to_string();
     sqlx::query(
         r#"
-        INSERT INTO aliases (id, alias_email, display_name, is_active, account_id)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO aliases (id, alias_email, display_name, is_active, account_id, owner_id, is_public)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&id)
@@ -294,6 +400,8 @@ pub async fn create_alias(
     .bind(&display_name)
     .bind(is_active)
     .bind(&account_id)
+    .bind(&user.id)
+    .bind(req.is_public)
     .execute(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -307,6 +415,8 @@ pub async fn create_alias(
         account_email: account.1,
         account_display_name: account.2,
         account_is_active: account.3,
+        owner_id: Some(user.id),
+        is_public: req.is_public,
     };
 
     Ok(Json(alias))
@@ -319,7 +429,19 @@ pub async fn update_alias(
     Json(req): Json<UpdateAliasRequest>,
 ) -> Result<Json<EmailAlias>, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::Admin) {
+    
+    // Check ownership or admin
+    let owner_row = sqlx::query("SELECT owner_id FROM aliases WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let owner_id = owner_row.and_then(|row| row.get::<Option<String>, _>(0));
+    let is_owner = owner_id.as_ref().map(|oid| oid == &user.id).unwrap_or(false);
+    let is_admin = matches!(user.role, UserRole::Admin);
+    
+    if !is_owner && !is_admin {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -327,10 +449,17 @@ pub async fn update_alias(
         account_id,
         display_name,
         is_active,
+        owner_id: req_owner_id,
+        is_public,
     } = req;
 
-    if account_id.is_none() && display_name.is_none() && is_active.is_none() {
+    if account_id.is_none() && display_name.is_none() && is_active.is_none() && req_owner_id.is_none() && is_public.is_none() {
         return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Only admin can change ownership
+    if req_owner_id.is_some() && !is_admin {
+        return Err(StatusCode::FORBIDDEN);
     }
 
     if let Some(account_id) = &account_id {
@@ -369,6 +498,26 @@ pub async fn update_alias(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
+    // Update owner_id if provided (admin only)
+    if let Some(owner_id) = req_owner_id {
+        sqlx::query("UPDATE aliases SET owner_id = ? WHERE id = ?")
+            .bind(&owner_id)
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    // Update is_public if provided
+    if let Some(is_public) = is_public {
+        sqlx::query("UPDATE aliases SET is_public = ? WHERE id = ?")
+            .bind(is_public)
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
     let row = sqlx::query(
         r#"
         SELECT 
@@ -379,7 +528,9 @@ pub async fn update_alias(
             aliases.account_id,
             accounts.email,
             accounts.display_name,
-            accounts.is_active
+            accounts.is_active,
+            aliases.owner_id,
+            aliases.is_public
         FROM aliases
         JOIN accounts ON aliases.account_id = accounts.id
         WHERE aliases.id = ?
@@ -399,6 +550,8 @@ pub async fn update_alias(
         account_email: row.get::<String, _>(5),
         account_display_name: row.get::<String, _>(6),
         account_is_active: row.get::<bool, _>(7),
+        owner_id: row.get::<Option<String>, _>(8),
+        is_public: row.get::<bool, _>(9),
     };
 
     Ok(Json(alias))
@@ -410,7 +563,19 @@ pub async fn delete_alias(
     user: AuthUser,
 ) -> Result<StatusCode, StatusCode> {
     user.ensure_password_updated()?;
-    if !matches!(user.role, UserRole::Admin) {
+    
+    // Check ownership or admin
+    let owner_row = sqlx::query("SELECT owner_id FROM aliases WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    let owner_id = owner_row.and_then(|row| row.get::<Option<String>, _>(0));
+    let is_owner = owner_id.as_ref().map(|oid| oid == &user.id).unwrap_or(false);
+    let is_admin = matches!(user.role, UserRole::Admin);
+    
+    if !is_owner && !is_admin {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -555,5 +720,87 @@ pub async fn get_inbox(
     }
     // TODO: Implement IMAP inbox retrieval
     Ok(Json(serde_json::json!([])))
+}
+
+// Get public accounts (for compose - visible to all authenticated users)
+pub async fn get_public_accounts(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<Vec<EmailAccount>>, StatusCode> {
+    user.ensure_password_updated()?;
+    
+    // Get public accounts + accounts owned by the user
+    let rows = sqlx::query(
+        "SELECT id, email, display_name, is_active, owner_id, is_public FROM accounts WHERE (is_public = 1 OR owner_id = ?) AND is_active = 1"
+    )
+    .bind(&user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let accounts: Vec<EmailAccount> = rows
+        .into_iter()
+        .map(|row| EmailAccount {
+            id: row.get::<String, _>(0),
+            email: row.get::<String, _>(1),
+            display_name: row.get::<String, _>(2),
+            is_active: row.get::<bool, _>(3),
+            owner_id: row.get::<Option<String>, _>(4),
+            is_public: row.get::<bool, _>(5),
+        })
+        .collect();
+
+    Ok(Json(accounts))
+}
+
+// Get public aliases (for compose - visible to all authenticated users)
+pub async fn get_public_aliases(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<Vec<EmailAlias>>, StatusCode> {
+    user.ensure_password_updated()?;
+    
+    // Get public aliases + aliases owned by the user
+    let rows = sqlx::query(
+        r#"
+        SELECT 
+            aliases.id,
+            aliases.alias_email,
+            aliases.display_name,
+            aliases.is_active,
+            aliases.account_id,
+            accounts.email,
+            accounts.display_name,
+            accounts.is_active,
+            aliases.owner_id,
+            aliases.is_public
+        FROM aliases
+        JOIN accounts ON aliases.account_id = accounts.id
+        WHERE (aliases.is_public = 1 OR aliases.owner_id = ?) AND aliases.is_active = 1 AND accounts.is_active = 1
+        ORDER BY aliases.alias_email ASC
+        "#
+    )
+    .bind(&user.id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let aliases = rows
+        .into_iter()
+        .map(|row| EmailAlias {
+            id: row.get::<String, _>(0),
+            alias_email: row.get::<String, _>(1),
+            display_name: row.get::<Option<String>, _>(2),
+            is_active: row.get::<bool, _>(3),
+            account_id: row.get::<String, _>(4),
+            account_email: row.get::<String, _>(5),
+            account_display_name: row.get::<String, _>(6),
+            account_is_active: row.get::<bool, _>(7),
+            owner_id: row.get::<Option<String>, _>(8),
+            is_public: row.get::<bool, _>(9),
+        })
+        .collect();
+
+    Ok(Json(aliases))
 }
 

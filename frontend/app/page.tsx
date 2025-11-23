@@ -55,16 +55,17 @@ export default function Home() {
       setLoadingAccounts(true)
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
-        const response = await fetch(`${apiUrl}/accounts`, {
+        // Use public endpoint to get public accounts + owned accounts
+        const response = await fetch(`${apiUrl}/accounts/public`, {
           headers: { Authorization: `Bearer ${session.token}` }
         })
         if (response.ok) {
           const data = await response.json()
-          const active = data.filter((acc: EmailAccount) => acc.isActive)
-          setAccounts(active)
+          // Already filtered to active and (public or owned) by backend
+          setAccounts(data)
           setFormData((prev) => {
-            if (active.length && !prev.from) {
-              return { ...prev, from: active[0].email }
+            if (data.length && !prev.from) {
+              return { ...prev, from: data[0].email }
             }
             return prev
           })
@@ -92,16 +93,17 @@ export default function Home() {
       setLoadingAliases(true)
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api'
-        const response = await fetch(`${apiUrl}/aliases`, {
+        // Use public endpoint to get public aliases + owned aliases
+        const response = await fetch(`${apiUrl}/aliases/public`, {
           headers: { Authorization: `Bearer ${session.token}` }
         })
         if (response.ok) {
           const data = await response.json()
-          const active = data.filter((alias: EmailAlias) => alias.isActive && alias.accountIsActive)
-          setAliases(active)
+          // Already filtered to active and (public or owned) by backend
+          setAliases(data)
           setFormData((prev) => {
-            if (active.length && !prev.from) {
-              return { ...prev, from: active[0].aliasEmail }
+            if (data.length && !prev.from) {
+              return { ...prev, from: data[0].aliasEmail }
             }
             return prev
           })

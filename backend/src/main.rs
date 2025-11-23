@@ -45,6 +45,10 @@ pub struct EmailAccount {
     pub display_name: String,
     #[serde(rename = "isActive")]
     pub is_active: bool,
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<String>,
+    #[serde(rename = "isPublic")]
+    pub is_public: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -64,6 +68,10 @@ pub struct EmailAlias {
     pub account_display_name: String,
     #[serde(rename = "accountIsActive")]
     pub account_is_active: bool,
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<String>,
+    #[serde(rename = "isPublic")]
+    pub is_public: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -97,6 +105,8 @@ pub struct CreateAccountRequest {
     pub password: String,
     #[serde(rename = "isActive")]
     pub is_active: bool,
+    #[serde(rename = "isPublic", default)]
+    pub is_public: bool,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +114,10 @@ pub struct UpdateAccountRequest {
     #[serde(rename = "isActive")]
     pub is_active: Option<bool>,
     pub password: Option<String>,
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<String>,
+    #[serde(rename = "isPublic")]
+    pub is_public: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +130,8 @@ pub struct CreateAliasRequest {
     pub display_name: Option<String>,
     #[serde(rename = "isActive")]
     pub is_active: bool,
+    #[serde(rename = "isPublic", default)]
+    pub is_public: bool,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +142,10 @@ pub struct UpdateAliasRequest {
     pub display_name: Option<String>,
     #[serde(rename = "isActive")]
     pub is_active: Option<bool>,
+    #[serde(rename = "ownerId")]
+    pub owner_id: Option<String>,
+    #[serde(rename = "isPublic")]
+    pub is_public: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -169,7 +189,10 @@ async fn main() -> anyhow::Result<()> {
             email TEXT UNIQUE NOT NULL,
             display_name TEXT NOT NULL,
             password TEXT NOT NULL,
-            is_active BOOLEAN NOT NULL DEFAULT 1
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            owner_id TEXT,
+            is_public BOOLEAN NOT NULL DEFAULT 0,
+            FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE SET NULL
         )
         "#,
     )
@@ -184,12 +207,52 @@ async fn main() -> anyhow::Result<()> {
             display_name TEXT,
             is_active BOOLEAN NOT NULL DEFAULT 1,
             account_id TEXT NOT NULL,
-            FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+            owner_id TEXT,
+            is_public BOOLEAN NOT NULL DEFAULT 0,
+            FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE SET NULL
         )
         "#,
     )
     .execute(&db)
     .await?;
+
+    // Migrate existing tables: add owner_id and is_public columns if they don't exist
+    sqlx::query(
+        r#"
+        ALTER TABLE accounts ADD COLUMN owner_id TEXT
+        "#,
+    )
+    .execute(&db)
+    .await
+    .ok();
+
+    sqlx::query(
+        r#"
+        ALTER TABLE accounts ADD COLUMN is_public BOOLEAN NOT NULL DEFAULT 0
+        "#,
+    )
+    .execute(&db)
+    .await
+    .ok();
+
+    sqlx::query(
+        r#"
+        ALTER TABLE aliases ADD COLUMN owner_id TEXT
+        "#,
+    )
+    .execute(&db)
+    .await
+    .ok();
+
+    sqlx::query(
+        r#"
+        ALTER TABLE aliases ADD COLUMN is_public BOOLEAN NOT NULL DEFAULT 0
+        "#,
+    )
+    .execute(&db)
+    .await
+    .ok();
 
     sqlx::query(
         r#"
@@ -301,11 +364,13 @@ async fn main() -> anyhow::Result<()> {
             "/api/accounts/:id",
             patch(update_account).delete(delete_account),
         )
+        .route("/api/accounts/public", get(get_public_accounts))
         .route("/api/aliases", get(get_aliases).post(create_alias))
         .route(
             "/api/aliases/:id",
             patch(update_alias).delete(delete_alias),
         )
+        .route("/api/aliases/public", get(get_public_aliases))
         .route(
             "/api/settings/default-sender",
             get(get_default_sender).put(update_default_sender),
