@@ -356,6 +356,7 @@ pub async fn create_alias(
         alias_email,
         display_name,
         is_active,
+        is_public,
     } = req;
 
     let account_row = sqlx::query(
