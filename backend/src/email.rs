@@ -21,7 +21,14 @@ pub struct EmailService;
 
 // Render email body with W9 Mail branding template (matching w9-tools design)
 pub fn render_email_template(body: &str) -> String {
-    // Escape HTML in the body content
+    // Check if body is already a complete HTML document
+    let trimmed = body.trim();
+    if trimmed.starts_with("<!DOCTYPE") || trimmed.starts_with("<html") {
+        // Already a complete HTML document, return as-is
+        return body.to_string();
+    }
+    
+    // Escape HTML in the body content (plain text)
     let escaped_body = html_escape(body);
     // Convert newlines to <br> tags for HTML
     let html_body = escaped_body.replace("\n", "<br />");
