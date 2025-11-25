@@ -2,10 +2,12 @@
 // This module will handle email operations
 
 use lettre::{
-    message::{header::ContentType, Mailbox, Message, SinglePart},
+    message::{header::ContentType, Attachment, Body, Mailbox, Message, MultiPart, SinglePart},
     transport::smtp::authentication::Credentials,
     AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
 };
+use base64::{engine::general_purpose::STANDARD as Base64, Engine};
+use regex::Regex;
 
 // Simple HTML escape function
 fn html_escape(input: &str) -> String {
@@ -143,18 +145,46 @@ impl EmailService {
             message_builder = message_builder.bcc(addr.clone());
         }
 
-        // Set body as plain text (can be extended to HTML later)
+        // Handle inline images: convert data URIs to CID attachments
+        let (final_body, attachments) = if as_html {
+            extract_inline_images(body)
+        } else {
+            (body.to_string(), Vec::new())
+        };
+
         let content_type = if as_html {
             ContentType::TEXT_HTML
         } else {
             ContentType::TEXT_PLAIN
         };
 
-        let email = message_builder.singlepart(
+        // Build email with or without attachments
+        let email = if attachments.is_empty() {
+            // Simple singlepart email
+            message_builder.singlepart(
                 SinglePart::builder()
-                .header(content_type)
-                    .body(body.to_string()),
-            )?;
+                    .header(content_type)
+                    .body(final_body),
+            )?
+        } else {
+            // Multipart email with inline attachments
+            let mut multipart = MultiPart::related()
+                .singlepart(
+                    SinglePart::builder()
+                        .header(content_type)
+                        .body(final_body),
+                );
+
+            for (cid, mime_type, data) in attachments {
+                let content_type = ContentType::parse(&mime_type)
+                    .unwrap_or(ContentType::TEXT_PLAIN);
+                let attachment = Attachment::new_inline(cid.clone())
+                    .body(data, content_type);
+                multipart = multipart.singlepart(attachment);
+            }
+
+            message_builder.multipart(multipart)?
+        };
 
         // Create SMTP transport for Microsoft/Outlook
         // Port 587 requires STARTTLS (not direct TLS)
@@ -176,4 +206,36 @@ impl EmailService {
         // TODO: Implement IMAP inbox fetching
         Ok(vec![])
     }
+}
+
+// Extract data URIs from HTML and convert them to CID attachments
+// Returns (modified_html, vec of (cid, mime_type, data))
+fn extract_inline_images(html: &str) -> (String, Vec<(String, String, Vec<u8>)>) {
+    // Pattern to match data URIs: data:image/type;base64,data
+    let re = Regex::new(r#"data:([^;]+);base64,([^"'\s>]+)"#).unwrap();
+    let mut attachments = Vec::new();
+    let mut cid_counter = 0;
+    let mut modified_html = html.to_string();
+
+    // Find all matches and collect them
+    for cap in re.captures_iter(html) {
+        let full_match = cap.get(0).unwrap();
+        let mime_type = cap.get(1).map(|m| m.as_str()).unwrap_or("image/png");
+        let base64_data = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+
+        // Decode base64 data
+        if let Ok(data) = Base64.decode(base64_data) {
+            cid_counter += 1;
+            let cid = format!("image{}", cid_counter);
+            
+            // Store attachment info
+            attachments.push((cid.clone(), mime_type.to_string(), data));
+            
+            // Replace in HTML
+            let cid_ref = format!("cid:{}", cid);
+            modified_html = modified_html.replacen(full_match.as_str(), &cid_ref, 1);
+        }
+    }
+
+    (modified_html, attachments)
 }
