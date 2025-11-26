@@ -3,6 +3,7 @@
   --fg: #fff;
   --border: #fff;
   --frame-border-width: 2px;
+  --frame-max-width: 720px;
 }
 
 * {
@@ -42,7 +43,7 @@ a {
 
 .app {
   width: 100%;
-  max-width: 720px;
+  max-width: var(--frame-max-width);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -53,6 +54,8 @@ a {
   text-transform: uppercase;
   text-align: center;
   padding: 1.25rem;
+  width: 100%;
+  max-width: var(--frame-max-width);
 }
 
 .eyebrow {
@@ -63,6 +66,8 @@ a {
 
 .network-bar {
   width: 100%;
+  max-width: var(--frame-max-width);
+  margin: 0 auto;
   border: var(--frame-border-width) solid var(--border);
   display: flex;
   flex-wrap: wrap;
@@ -90,7 +95,7 @@ a {
 }
 
 .network-link {
-  border: 2px solid var(--border);
+  border: var(--frame-border-width) solid var(--border);
   padding: 0.35rem 0.75rem;
   text-transform: uppercase;
   display: flex;
@@ -124,6 +129,8 @@ a {
   gap: 0.5rem;
   padding: 0.75rem;
   justify-content: center;
+  width: 100%;
+  max-width: var(--frame-max-width);
 }
 
 .nav-link {
@@ -297,7 +304,7 @@ pre {
 .site-footer {
   border: var(--frame-border-width) solid var(--border);
   width: 100%;
-  max-width: 720px;
+  max-width: var(--frame-max-width);
   padding: 1rem;
 }
 
