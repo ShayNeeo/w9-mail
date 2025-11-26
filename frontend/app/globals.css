@@ -90,8 +90,9 @@ a {
 
 .network-links {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.5rem;
+  overflow-x: auto;
 }
 
 .network-link {
@@ -329,6 +330,10 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.footer-links li {
+  white-space: nowrap;
 }
 
 .footer-copy {
