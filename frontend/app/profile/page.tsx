@@ -25,7 +25,7 @@ export default function ProfilePage() {
   const [newTokenName, setNewTokenName] = useState('')
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<{ id: string; token: string; name?: string | null } | null>(null)
 
-  const fetchApiTokens = async () => {
+  const fetchApiTokens = React.useCallback(async () => {
     if (!session?.token) return
     setLoadingTokens(true)
     try {
@@ -44,7 +44,7 @@ export default function ProfilePage() {
     } finally {
       setLoadingTokens(false)
     }
-  }
+  }, [session?.token, logout])
 
   const handleCreateToken = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -106,7 +106,7 @@ export default function ProfilePage() {
     if (session) {
       fetchApiTokens()
     }
-  }, [session])
+  }, [session, fetchApiTokens])
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()

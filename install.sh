@@ -176,6 +176,12 @@ FRONTEND_NEEDS_BUILD=true
 
 # Auto-update Rust toolchain and backend crate dependencies (best-effort)
 echo "Checking Rust toolchain and dependencies..."
+# Ensure Cargo's bin dir is on PATH for this shell
+if [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+fi
+
 if command -v rustup >/dev/null 2>&1; then
     echo "Updating Rust toolchain with rustup..."
     if ! rustup update stable >/dev/null 2>&1; then
@@ -277,6 +283,12 @@ fi
 if [ "$FRONTEND_NEEDS_BUILD" = "true" ]; then
     echo "Building frontend..."
     cd "$ROOT_DIR/frontend"
+    # Optionally update package.json versions with npm-check-updates (best-effort)
+    if [ "${AUTO_UPDATE_PACKAGE_JSON:-1}" != "0" ]; then
+        echo "Updating package.json dependency ranges with npm-check-updates (best-effort)..."
+        npx npm-check-updates@latest -u 2>&1 | tail -1 || echo "⚠ npm-check-updates failed (continuing with existing ranges)"
+    fi
+
     echo "Installing npm dependencies (npm install)..."
     npm install --prefer-offline --no-audit 2>&1 | tail -1 || {
         echo "ERROR: npm install failed"
