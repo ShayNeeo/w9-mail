@@ -164,55 +164,67 @@ curl -H "Authorization: Bearer YOUR_API_TOKEN" \
 
 ### Prerequisites
 
-- Ubuntu/Debian server with sudo access
-- Git
-- curl
+- Docker and Docker Compose installed on your VPS
+- GitHub Container Registry (GHCR) access configured
 - Microsoft 365/Azure app credentials:
   - Client ID
   - Client Secret
   - Tenant ID
 
-### Quick Installation
+### Docker Deployment
 
-1. **Clone the repository:**
+This project uses **Docker with CI/CD** for deployment. Images are automatically built and pushed to GitHub Container Registry on every push to `main`.
+
+#### Quick Start
+
+1. **Set up deployment on your VPS:**
+   
+   Clone the repository and configure environment variables:
+   
    ```bash
-   git clone https://github.com/ShayNeeo/w9-mail.git
+   # On your VPS
+   git clone https://github.com/your-username/w9-mail.git
    cd w9-mail
+   
+   # Configure environment variables
+   cp .env.example .env
+   nano .env
    ```
 
-2. **Run the installer with environment variables:**
+2. **Login to GitHub Container Registry (if using private images):**
    ```bash
-   DOMAIN=w9.nu \
-   BASE_URL=https://w9.nu \
-   APP_PORT=8080 \
-   MICROSOFT_CLIENT_ID=your-client-id \
-   MICROSOFT_CLIENT_SECRET_ID=your-client-secret \
-   MICROSOFT_TENANT_ID=your-tenant-id \
-   sudo -E ./install.sh
+   echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_USERNAME --password-stdin
    ```
 
-The installer will:
-- Install required packages (Rust toolchain, Node.js, nginx, etc.)
-- Build the backend (`cargo build --release`)
-- Build the frontend (`npm install && npm run build`)
-- Deploy binaries to `/opt/w9-mail`
-- Deploy frontend to `/var/www/w9-mail`
-- Create systemd service (`w9-mail.service`)
-- Configure nginx reverse proxy
-- Set up environment variables in `/etc/default/w9-mail`
-
-3. **Verify installation:**
+3. **Deploy with Docker Compose:**
    ```bash
-   systemctl status w9-mail
-   journalctl -u w9-mail -f
+   # Pull latest images
+   docker-compose pull
+   
+   # Start services
+   docker-compose up -d
    ```
 
-4. **Access the web interface:**
+4. **View logs:**
+   ```bash
+   docker-compose logs -f w9-mail-backend
+   ```
+
+5. **Access the web interface:**
    Visit `https://your-domain` in your browser
+
+### CI/CD
+
+The project includes a GitHub Actions workflow (`.github/workflows/docker-build.yml`) that:
+- Builds both backend and frontend Docker images on every push to `main`
+- Pushes images to `ghcr.io/<your-username>/w9-mail-backend` and `w9-mail-frontend`
+- Tags images with `latest` and commit SHA
+
+**Watchtower** (included in docker-compose.yml) automatically updates containers when new images are pushed.
 
 ### Configuration
 
-Configuration is stored in `/etc/default/w9-mail` (created by the installer).
+Configuration is managed via environment variables in the `.env` file. Copy `.env.example` to `.env` and fill in your values.
 
 #### Environment Variables
 
@@ -236,17 +248,47 @@ Configuration is stored in `/etc/default/w9-mail` (created by the installer).
 
 #### Updating Configuration
 
-1. Edit `/etc/default/w9-mail`:
+1. Edit `.env` file:
    ```bash
-   sudo nano /etc/default/w9-mail
+   nano .env
    ```
 
-2. Restart the service:
+2. Restart the containers:
    ```bash
-   sudo systemctl restart w9-mail
+   docker-compose restart w9-mail-backend w9-mail-frontend
    ```
 
 ### Service Management
+
+#### Check Service Status
+```bash
+docker-compose ps
+```
+
+#### View Logs
+```bash
+# Follow logs in real-time
+docker-compose logs -f w9-mail-backend
+
+# View recent logs
+docker-compose logs --tail=100 w9-mail-backend
+```
+
+#### Restart Service
+```bash
+docker-compose restart w9-mail-backend
+```
+
+#### Update to Latest Version
+```bash
+# Pull latest images
+docker-compose pull
+
+# Restart with new images
+docker-compose up -d
+```
+
+> **Note**: Watchtower automatically updates containers when new images are pushed to the registry. Manual updates are only needed if you want to update immediately.
 
 #### Check Service Status
 ```bash
