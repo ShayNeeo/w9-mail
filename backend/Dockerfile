@@ -1,6 +1,6 @@
 # Multi-stage build for w9-mail backend
 # Stage 1: Build
-FROM rust:1.75-slim as builder
+FROM rust:1.83-slim AS builder
 
 WORKDIR /build
 
@@ -8,6 +8,7 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Cargo files
