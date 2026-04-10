@@ -1,9 +1,8 @@
-guide.md
-node_modules/
 target/
-*.db
 .env
-.env.local
+*.db
+*.db-shm
+*.db-wal
 .DS_Store
 *.log
-api_docs.json
+client/dist/
