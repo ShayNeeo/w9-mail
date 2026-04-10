@@ -3,10 +3,13 @@ name = "w9-mail-server"
 version = "0.1.0"
 edition = "2021"
 [dependencies]
+w9-mail-client = { path = "../client" }
 axum = { workspace = true }
+axum-extra = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+surrealdb = { workspace = true }
 chrono = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -14,3 +17,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 dotenvy = { workspace = true }
 anyhow = { workspace = true }
+lettre = { workspace = true }
+reqwest = { workspace = true }
+argon2 = { workspace = true }
+jsonwebtoken = { workspace = true }
+sha2 = { workspace = true }
+leptos = { workspace = true }
+leptos_axum = "0.6"
+leptos_meta = { workspace = true }
+leptos_router = { workspace = true }

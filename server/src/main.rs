@@ -1,18 +1,29 @@
-use axum::{routing::get, Router, http::StatusCode, response::IntoResponse};
+use axum::{routing::get, Router, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer, services::ServeDir};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 async fn health_check() -> impl IntoResponse {
-    (StatusCode::OK, axum::Json(serde_json::json!({"status": "ok", "service": "w9-mail", "timestamp": Utc::now().to_rfc3339()})))
+    (StatusCode::OK, Json(serde_json::json!({"status":"ok","service":"w9-mail","timestamp":Utc::now().to_rfc3339()})))
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::registry().with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "w9_mail=debug".into())).with(tracing_subscriber::fmt::layer()).init();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
     dotenvy::dotenv().ok();
-    let port = std::env::var("PORT").unwrap_or_else(|_| "10106".to_string());
-    let router = Router::new().route("/api/health", get(health_check)).nest_service("/", ServeDir::new("site/pkg")).layer(tower::ServiceBuilder::new().layer(CorsLayer::permissive()));
+    let port = std::env::var("PORT").unwrap_or_else(|_| "10106".into());
+    let ms_client_id = std::env::var("MICROSOFT_CLIENT_ID").unwrap_or_default();
+    let ms_tenant = std::env::var("MICROSOFT_TENANT_ID").unwrap_or_default();
+    tracing::info!("W9 Mail: ms_client={} ms_tenant={}", 
+        if ms_client_id.is_empty() { "NOT SET" } else { "***" },
+        if ms_tenant.is_empty() { "NOT SET" } else { "***" });
+    let router = Router::new()
+        .route("/api/health", get(health_check))
+        .nest_service("/", ServeDir::new("site/pkg"))
+        .layer(tower::ServiceBuilder::new().layer(CorsLayer::permissive()));
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("W9 Mail listening on {}", addr);

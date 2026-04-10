@@ -1,5 +1,5 @@
 [package]
-name = "w9_mail-client"
+name = "w9-mail-client"
 version = "0.1.0"
 edition = "2021"
 
