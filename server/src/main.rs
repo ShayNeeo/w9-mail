@@ -25,9 +25,79 @@ pub struct AppState {
     pub ms_client_id: String,
     pub ms_tenant: String,
     pub ms_secret: String,
-    pub ms_scope: String,
+    pub ms_default_sender: String,
     pub api_token: String,
     pub http_client: reqwest::Client,
+}
+
+/// Get Microsoft Graph API access token via OAuth 2.0 Client Credentials flow
+async fn get_ms_graph_token(state: &AppState) -> Result<String, String> {
+    let token_url = format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", state.ms_tenant);
+    let params = [
+        ("client_id", state.ms_client_id.as_str()),
+        ("client_secret", state.ms_secret.as_str()),
+        ("scope", "https://graph.microsoft.com/.default"),
+        ("grant_type", "client_credentials"),
+    ];
+    let res = state.http_client.post(&token_url)
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| format!("Token request failed: {}", e))?;
+    let status = res.status();
+    let body = res.text().await.map_err(|e| format!("Token response read failed: {}", e))?;
+    if !status.is_success() {
+        return Err(format!("Token request failed ({}): {}", status, body));
+    }
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Token parse failed: {}", e))?;
+    json.get("access_token")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("No access_token in response: {}", body))
+}
+
+/// Send email via Microsoft Graph API
+async fn send_email_via_graph(state: &AppState, from: &str, to: &str, subject: &str, body_html: &str, body_text: &str) -> Result<String, String> {
+    let token = get_ms_graph_token(state).await?;
+
+    // Build the sendMail request body
+    let payload = serde_json::json!({
+        "message": {
+            "sender": {
+                "emailAddress": { "address": from }
+            },
+            "from": {
+                "emailAddress": { "address": from }
+            },
+            "toRecipients": [
+                { "emailAddress": { "address": to } }
+            ],
+            "subject": subject,
+            "body": {
+                "contentType": "html",
+                "content": body_html
+            }
+        },
+        "saveToSentItems": true
+    });
+
+    // Use the sender's email as the user principal for the API endpoint
+    let url = format!("https://graph.microsoft.com/v1.0/users/{}/sendMail", from);
+    let res = state.http_client.post(&url)
+        .bearer_auth(&token)
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Graph API request failed: {}", e))?;
+    let status = res.status();
+    if status.is_success() {
+        Ok("sent".to_string())
+    } else {
+        let err_body = res.text().await.unwrap_or_default();
+        Err(format!("Graph API error ({}): {}", status, err_body))
+    }
 }
 
 // ============================================================
@@ -281,14 +351,43 @@ async fn api_send(State(state): State<AppState>, headers: HeaderMap, Json(req): 
     };
     if !valid { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error":"Invalid API token"}))); }
 
+    // Determine sender: use alias if specified, otherwise default sender
+    let from = match &req.from_alias {
+        Some(alias) => {
+            match state.db.query_one("SELECT user_email FROM email_aliases WHERE alias = $1", &[&alias]).await {
+                Ok(row) => row.get(0),
+                Err(_) => {
+                    tracing::warn!("Alias '{}' not found, using default sender", alias);
+                    state.ms_default_sender.clone()
+                }
+            }
+        }
+        None => state.ms_default_sender.clone(),
+    };
+
     // Log the email
     let log_id = Uuid::new_v4();
-    let _ = state.db.execute("INSERT INTO email_send_log (id, to_email, from_alias, subject, status) VALUES ($1,$2,$3,$4,$5)", &[&log_id, &req.to, &req.from_alias, &req.subject, &"pending"]).await;
+    let _ = state.db.execute("INSERT INTO email_send_log (id, to_email, from_alias, subject, status) VALUES ($1,$2,$3,$4,$5)",
+        &[&log_id, &req.to, &req.from_alias, &req.subject, &"pending"]).await;
 
-    // TODO: Actually send via Microsoft SMTP (needs e5_users + aliases lookup)
-    let _ = state.db.execute("UPDATE email_send_log SET status = $1, sent_at = $2 WHERE id = $3", &[&"sent", &Utc::now(), &log_id]).await;
+    // Build body_text if not provided
+    let body_text = req.body_text.clone().unwrap_or_else(|| req.body_html.clone());
 
-    (StatusCode::OK, Json(serde_json::json!({"message_id": log_id.to_string(), "to": req.to, "subject": req.subject, "status": "sent"})))
+    // Send via Microsoft Graph API
+    match send_email_via_graph(&state, &from, &req.to, &req.subject, &req.body_html, &body_text).await {
+        Ok(_) => {
+            tracing::info!("✅ Email sent: {} → {} ({})", from, req.to, req.subject);
+            let _ = state.db.execute("UPDATE email_send_log SET status = $1, sent_at = $2 WHERE id = $3",
+                &[&"sent", &Utc::now(), &log_id]).await;
+            (StatusCode::OK, Json(serde_json::json!({"message_id": log_id.to_string(), "to": req.to, "subject": req.subject, "status": "sent"})))
+        }
+        Err(e) => {
+            tracing::error!("❌ Email send failed: {} → {} ({}) — {}", from, req.to, req.subject, e);
+            let _ = state.db.execute("UPDATE email_send_log SET status = $1, error_message = $2, sent_at = $3 WHERE id = $4",
+                &[&"failed", &e, &Utc::now(), &log_id]).await;
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e, "to": req.to, "subject": req.subject, "status": "failed"})))
+        }
+    }
 }
 
 async fn api_health(State(state): State<AppState>) -> impl IntoResponse {
@@ -310,14 +409,14 @@ async fn main() -> anyhow::Result<()> {
     let ms_client_id = std::env::var("MICROSOFT_CLIENT_ID").unwrap_or_default();
     let ms_tenant = std::env::var("MICROSOFT_TENANT_ID").unwrap_or_default();
     let ms_secret = std::env::var("MICROSOFT_CLIENT_VALUE").unwrap_or_default();
-    let ms_scope = std::env::var("MICROSOFT_SCOPE").unwrap_or_default();
+    let ms_default_sender = std::env::var("MICROSOFT_DEFAULT_SENDER").unwrap_or_default();
     let api_token = std::env::var("W9_MAIL_API_TOKEN").unwrap_or_default();
     tracing::info!("Connecting to PostgreSQL...");
     let (client, conn) = tokio_postgres::connect(&db_url, NoTls).await?;
     tokio::spawn(async move { if let Err(e) = conn.await { tracing::error!("DB: {}", e); } });
     client.query_one("SELECT 1", &[]).await?;
     tracing::info!("Connected to PostgreSQL");
-    let state = AppState { db: Arc::new(client), ms_client_id, ms_tenant, ms_secret, ms_scope, api_token, http_client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build()? };
+    let state = AppState { db: Arc::new(client), ms_client_id, ms_tenant, ms_secret, ms_default_sender, api_token, http_client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build()? };
     let router = Router::new()
         .route("/", get(home))
         .route("/login", get(login_page))
