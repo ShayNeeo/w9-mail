@@ -7,6 +7,8 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use chrono::Utc;
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{Message, SmtpTransport, Transport};
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -22,81 +24,50 @@ const W9_DB_URL: &str = "https://db.w9.nu";
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Client>,
-    pub ms_client_id: String,
-    pub ms_tenant: String,
-    pub ms_secret: String,
-    pub ms_default_sender: String,
     pub api_token: String,
     pub http_client: reqwest::Client,
 }
 
-/// Get Microsoft Graph API access token via OAuth 2.0 Client Credentials flow
-async fn get_ms_graph_token(state: &AppState) -> Result<String, String> {
-    let token_url = format!("https://login.microsoftonline.com/{}/oauth2/v2.0/token", state.ms_tenant);
-    let params = [
-        ("client_id", state.ms_client_id.as_str()),
-        ("client_secret", state.ms_secret.as_str()),
-        ("scope", "https://graph.microsoft.com/.default"),
-        ("grant_type", "client_credentials"),
-    ];
-    let res = state.http_client.post(&token_url)
-        .form(&params)
-        .send()
-        .await
-        .map_err(|e| format!("Token request failed: {}", e))?;
-    let status = res.status();
-    let body = res.text().await.map_err(|e| format!("Token response read failed: {}", e))?;
-    if !status.is_success() {
-        return Err(format!("Token request failed ({}): {}", status, body));
-    }
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| format!("Token parse failed: {}", e))?;
-    json.get("access_token")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .ok_or_else(|| format!("No access_token in response: {}", body))
+/// Send email via SMTP (Office 365 / Microsoft E5)
+fn send_email_via_smtp(username: &str, password: &str, from: &str, to: &str, subject: &str, body_html: &str, _body_text: &str) -> Result<String, String> {
+    let email = Message::builder()
+        .from(from.parse().map_err(|e| format!("Invalid from address: {}", e))?)
+        .to(to.parse().map_err(|e| format!("Invalid to address: {}", e))?)
+        .subject(subject)
+        .header(lettre::message::header::ContentType::TEXT_HTML)
+        .body(body_html.to_string())
+        .map_err(|e| format!("Failed to build email: {}", e))?;
+
+    let creds = Credentials::new(username.to_string(), password.to_string());
+
+    let mailer = SmtpTransport::starttls_relay("smtp.office365.com")
+        .map_err(|e| format!("Failed to create SMTP transport: {}", e))?
+        .credentials(creds)
+        .build();
+
+    mailer.send(&email)
+        .map(|_| "sent".to_string())
+        .map_err(|e| format!("SMTP send failed: {}", e))
 }
 
-/// Send email via Microsoft Graph API
-async fn send_email_via_graph(state: &AppState, from: &str, to: &str, subject: &str, body_html: &str, body_text: &str) -> Result<String, String> {
-    let token = get_ms_graph_token(state).await?;
-
-    // Build the sendMail request body
-    let payload = serde_json::json!({
-        "message": {
-            "sender": {
-                "emailAddress": { "address": from }
-            },
-            "from": {
-                "emailAddress": { "address": from }
-            },
-            "toRecipients": [
-                { "emailAddress": { "address": to } }
-            ],
-            "subject": subject,
-            "body": {
-                "contentType": "html",
-                "content": body_html
+/// Look up E5 user credentials by sender email or alias
+async fn lookup_e5_credentials(state: &AppState, from: &str) -> Result<(String, String), String> {
+    match state.db.query_opt(
+        "SELECT email, app_password FROM e5_users WHERE email = $1",
+        &[&from],
+    ).await {
+        Ok(Some(row)) => Ok((row.get::<_, String>(0), row.get::<_, String>(1))),
+        Ok(None) => {
+            match state.db.query_opt(
+                "SELECT eu.email, eu.app_password FROM email_aliases ea JOIN e5_users eu ON ea.user_email = eu.email WHERE ea.alias = $1",
+                &[&from],
+            ).await {
+                Ok(Some(row)) => Ok((row.get::<_, String>(0), row.get::<_, String>(1))),
+                Ok(None) => Err(format!("No E5 user found for sender: {}", from)),
+                Err(e) => Err(format!("DB error looking up E5 user: {}", e)),
             }
-        },
-        "saveToSentItems": true
-    });
-
-    // Use the sender's email as the user principal for the API endpoint
-    let url = format!("https://graph.microsoft.com/v1.0/users/{}/sendMail", from);
-    let res = state.http_client.post(&url)
-        .bearer_auth(&token)
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("Graph API request failed: {}", e))?;
-    let status = res.status();
-    if status.is_success() {
-        Ok("sent".to_string())
-    } else {
-        let err_body = res.text().await.unwrap_or_default();
-        Err(format!("Graph API error ({}): {}", status, err_body))
+        }
+        Err(e) => Err(format!("DB error looking up E5 user: {}", e)),
     }
 }
 
@@ -137,7 +108,7 @@ async fn verify_w9_session(state: &AppState, token: &str) -> Option<serde_json::
 // Pages: Public
 // ============================================================
 fn home_html() -> String {
-    public_layout("W9 Mail", r#"<div class="hero"><img class="hero-logo" src="/w9-logo/logo-landscape-transparent.svg" alt="W9 Labs"/><h1>W9 Mail</h1><p class="hero-sub">Transactional Email Service powered by Microsoft E5</p><p class="hero-muted">Send emails, manage aliases, and track delivery for the W9 Network</p><div class="hero-actions"><a href="/login" class="btn">Admin Login</a></div></div><div class="grid"><div class="card"><h3>📤 Send Emails</h3><p>API endpoint for other W9 services to send transactional emails via Microsoft E5 SMTP.</p></div><div class="card"><h3>🏷️ Alias Management</h3><p>Create and manage email aliases per E5 user for different service identities.</p></div><div class="card"><h3>🔑 API Tokens</h3><p>Generate API tokens for w9-db, w9-reminders, and other services to send emails.</p></div></div>"#)
+    public_layout("W9 Mail", r#"<div class="hero"><img class="hero-logo" src="/w9-logo/logo-landscape-transparent.svg" alt="W9 Labs"/><h1>W9 Mail</h1><p class="hero-sub">Transactional Email Service powered by Microsoft E5 SMTP</p><p class="hero-muted">Send emails, manage aliases, and track delivery for the W9 Network</p><div class="hero-actions"><a href="/login" class="btn">Admin Login</a></div></div><div class="grid"><div class="card"><h3>📤 Send Emails</h3><p>API endpoint for other W9 services to send transactional emails via Office 365 SMTP (port 587 STARTTLS).</p></div><div class="card"><h3>🏷️ Alias Management</h3><p>Create and manage email aliases per E5 user for different service identities.</p></div><div class="card"><h3>🔑 API Tokens</h3><p>Generate API tokens for w9-db, w9-reminders, and other services to send emails.</p></div></div>"#)
 }
 
 fn login_html(err: Option<&str>) -> String {
@@ -215,7 +186,6 @@ async fn oauth_callback(State(state): State<AppState>, jar: CookieJar, Query(q):
         Some(c) => c.to_string(),
         None => return Html(login_html(Some("OAuth: No authorization code received"))).into_response(),
     };
-    // Exchange code for token
     let res = state.http_client.post(format!("{}/oauth/token", W9_DB_URL))
         .form(&[("grant_type", "authorization_code"), ("code", &code), ("redirect_uri", &format!("{}/oauth/callback", std::env::var("PUBLIC_URL").unwrap_or_else(|_| "https://mail.w9.nu".into())))])
         .send().await;
@@ -230,7 +200,6 @@ async fn oauth_callback(State(state): State<AppState>, jar: CookieJar, Query(q):
         Some(t) => t.to_string(),
         None => return Html(login_html(Some("OAuth: No access token in response"))).into_response(),
     };
-    // Verify user is admin
     let user = match verify_w9_session(&state, &access_token).await {
         Some(u) => u,
         None => return Html(login_html(Some("OAuth: Failed to verify session"))).into_response(),
@@ -354,18 +323,35 @@ async fn api_send(State(state): State<AppState>, headers: HeaderMap, Json(req): 
     };
     if !valid { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error":"Invalid API token"}))); }
 
-    // Determine sender: use alias if specified, otherwise default sender
-    let from = match &req.from_alias {
+    // Determine sender: use alias if specified, otherwise find first E5 user
+    let from: String = match &req.from_alias {
         Some(alias) => {
-            match state.db.query_one("SELECT user_email FROM email_aliases WHERE alias = $1", &[&alias]).await {
+            match state.db.query_one("SELECT alias FROM email_aliases WHERE alias = $1", &[&alias]).await {
                 Ok(row) => row.get(0),
                 Err(_) => {
-                    tracing::warn!("Alias '{}' not found, using default sender", alias);
-                    state.ms_default_sender.clone()
+                    tracing::warn!("Alias '{}' not found, using first E5 user", alias);
+                    match state.db.query_opt("SELECT email FROM e5_users LIMIT 1", &[]).await {
+                        Ok(Some(row)) => row.get::<_, String>(0),
+                        _ => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"No E5 user configured"}))),
+                    }
                 }
             }
         }
-        None => state.ms_default_sender.clone(),
+        None => {
+            match state.db.query_opt("SELECT email FROM e5_users LIMIT 1", &[]).await {
+                Ok(Some(row)) => row.get::<_, String>(0),
+                _ => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"No E5 user configured"}))),
+            }
+        }
+    };
+
+    // Look up E5 credentials for SMTP auth
+    let (smtp_username, smtp_password) = match lookup_e5_credentials(&state, &from).await {
+        Ok(creds) => creds,
+        Err(e) => {
+            tracing::error!("❌ Failed to lookup E5 credentials for {}: {}", from, e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("No SMTP credentials for {}", from)})));
+        }
     };
 
     // Log the email
@@ -373,19 +359,18 @@ async fn api_send(State(state): State<AppState>, headers: HeaderMap, Json(req): 
     let _ = state.db.execute("INSERT INTO email_send_log (id, to_email, from_alias, subject, status) VALUES ($1,$2,$3,$4,$5)",
         &[&log_id, &req.to, &req.from_alias, &req.subject, &"pending"]).await;
 
-    // Build body_text if not provided
     let body_text = req.body_text.clone().unwrap_or_else(|| req.body_html.clone());
 
-    // Send via Microsoft Graph API
-    match send_email_via_graph(&state, &from, &req.to, &req.subject, &req.body_html, &body_text).await {
+    // Send via SMTP (Office 365)
+    match send_email_via_smtp(&smtp_username, &smtp_password, &from, &req.to, &req.subject, &req.body_html, &body_text) {
         Ok(_) => {
-            tracing::info!("✅ Email sent: {} → {} ({})", from, req.to, req.subject);
+            tracing::info!("✅ Email sent via SMTP: {} → {} ({})", from, req.to, req.subject);
             let _ = state.db.execute("UPDATE email_send_log SET status = $1, sent_at = $2 WHERE id = $3",
                 &[&"sent", &Utc::now(), &log_id]).await;
             (StatusCode::OK, Json(serde_json::json!({"message_id": log_id.to_string(), "to": req.to, "subject": req.subject, "status": "sent"})))
         }
         Err(e) => {
-            tracing::error!("❌ Email send failed: {} → {} ({}) — {}", from, req.to, req.subject, e);
+            tracing::error!("❌ SMTP send failed: {} → {} ({}) — {}", from, req.to, req.subject, e);
             let _ = state.db.execute("UPDATE email_send_log SET status = $1, error_message = $2, sent_at = $3 WHERE id = $4",
                 &[&"failed", &e, &Utc::now(), &log_id]).await;
             (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e, "to": req.to, "subject": req.subject, "status": "failed"})))
@@ -409,17 +394,13 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let port = std::env::var("PORT").unwrap_or_else(|_| "10106".into());
     let db_url = std::env::var("W9_MAIL_DB_URL").or_else(|_| std::env::var("DATABASE_URL")).unwrap_or_else(|_| "postgres://w9_admin:password@w9-postgres:5432/w9_emails".into());
-    let ms_client_id = std::env::var("MICROSOFT_CLIENT_ID").unwrap_or_default();
-    let ms_tenant = std::env::var("MICROSOFT_TENANT_ID").unwrap_or_default();
-    let ms_secret = std::env::var("MICROSOFT_CLIENT_VALUE").unwrap_or_default();
-    let ms_default_sender = std::env::var("MICROSOFT_DEFAULT_SENDER").unwrap_or_default();
     let api_token = std::env::var("W9_MAIL_API_TOKEN").unwrap_or_default();
     tracing::info!("Connecting to PostgreSQL...");
     let (client, conn) = tokio_postgres::connect(&db_url, NoTls).await?;
     tokio::spawn(async move { if let Err(e) = conn.await { tracing::error!("DB: {}", e); } });
     client.query_one("SELECT 1", &[]).await?;
     tracing::info!("Connected to PostgreSQL");
-    let state = AppState { db: Arc::new(client), ms_client_id, ms_tenant, ms_secret, ms_default_sender, api_token, http_client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build()? };
+    let state = AppState { db: Arc::new(client), api_token, http_client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build()? };
     let router = Router::new()
         .nest_service("/w9-logo", ServeDir::new("public/w9-logo"))
         .route("/", get(home))
