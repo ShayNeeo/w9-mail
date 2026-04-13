@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_postgres::{Client, NoTls};
 use tower::ServiceBuilder;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{cors::CorsLayer, trace::TraceLayer, services::ServeDir};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -104,7 +104,7 @@ async fn send_email_via_graph(state: &AppState, from: &str, to: &str, subject: &
 // Layout
 // ============================================================
 fn layout(title: &str, body: &str, nav: &str) -> String {
-    format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>{title} — W9 Mail</title><style>{CSS}</style></head><body><div class="app"><nav class="nav"><a href="/" class="brand">📧 W9 Mail</a>{nav}</nav>{body}<footer class="footer"><p>W9 Mail — Transactional Email Service</p><p class="text-xs text-muted">Microsoft E5 SMTP + Admin Panel</p></footer></div></body></html>"#, title=title, CSS=CSS, nav=nav, body=body)
+    format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>{title} — W9 Mail</title><style>{CSS}</style></head><body><div class="app"><nav class="nav"><a href="/" class="brand"><img src="/w9-logo/wordmark-light.svg" alt="W9"/><span>Mail</span></a>{nav}</nav>{body}<footer class="footer"><p>W9 Mail — Transactional Email Service</p><p class="text-xs text-muted">Microsoft E5 SMTP + Admin Panel</p></footer></div></body></html>"#, title=title, CSS=CSS, nav=nav, body=body)
 }
 fn public_layout(title: &str, body: &str) -> String { layout(title, body, r#"<a href="/login">Admin Login</a>"#) }
 fn admin_layout(title: &str, body: &str) -> String { layout(title, body, r#"<a href="/dashboard">Dashboard</a><a href="/tokens">API Tokens</a><a href="/users">E5 Users</a><a href="/aliases">Aliases</a><a href="/log">Send Log</a><a href="/logout">Logout</a>"#) }
@@ -134,7 +134,7 @@ async fn verify_w9_session(state: &AppState, token: &str) -> Option<serde_json::
 // Pages: Public
 // ============================================================
 fn home_html() -> String {
-    public_layout("W9 Mail", r#"<div class="hero"><h1>📧 W9 Mail</h1><p>Transactional Email Service powered by Microsoft E5</p><p class="text-sm text-muted">Send emails, manage aliases, and track delivery for the W9 Network</p><div class="flex mt-3" style="justify-content:center"><a href="/login" class="btn">Admin Login</a></div></div><div class="grid mt-3"><div class="card"><h3>📤 Send Emails</h3><p class="text-sm">API endpoint for other W9 services to send transactional emails via Microsoft E5 SMTP.</p></div><div class="card"><h3>🏷️ Alias Management</h3><p class="text-sm">Create and manage email aliases per E5 user for different service identities.</p></div><div class="card"><h3>🔑 API Tokens</h3><p class="text-sm">Generate API tokens for w9-db, w9-reminders, and other services to send emails.</p></div></div>"#)
+    public_layout("W9 Mail", r#"<div class="hero"><img class="hero-logo" src="/w9-logo/hero-transparent.svg" alt="W9 Mail"/><h1>📧 W9 Mail</h1><p>Transactional Email Service powered by Microsoft E5</p><p class="text-sm text-muted">Send emails, manage aliases, and track delivery for the W9 Network</p><div class="flex mt-3" style="justify-content:center"><a href="/login" class="btn">Admin Login</a></div></div><div class="grid mt-3"><div class="card"><h3>📤 Send Emails</h3><p class="text-sm">API endpoint for other W9 services to send transactional emails via Microsoft E5 SMTP.</p></div><div class="card"><h3>🏷️ Alias Management</h3><p class="text-sm">Create and manage email aliases per E5 user for different service identities.</p></div><div class="card"><h3>🔑 API Tokens</h3><p class="text-sm">Generate API tokens for w9-db, w9-reminders, and other services to send emails.</p></div></div>"#)
 }
 
 fn login_html(err: Option<&str>) -> String {
@@ -418,6 +418,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Connected to PostgreSQL");
     let state = AppState { db: Arc::new(client), ms_client_id, ms_tenant, ms_secret, ms_default_sender, api_token, http_client: reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build()? };
     let router = Router::new()
+        .nest_service("/w9-logo", ServeDir::new("public/w9-logo"))
         .route("/", get(home))
         .route("/login", get(login_page))
         .route("/oauth/callback", get(oauth_callback))
