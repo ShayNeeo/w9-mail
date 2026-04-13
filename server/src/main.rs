@@ -105,7 +105,7 @@ async fn send_email_via_graph(state: &AppState, from: &str, to: &str, subject: &
 // ============================================================
 fn layout(title: &str, body: &str, nav: &str) -> String {
     format!(
-r#"<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>{title} — W9 Mail</title><style>{CSS}</style></head><body><div class="app"><nav class="nav"><div class="nav-inner"><a href="/" class="brand"><img src="/w9-logo/workmark-transparent.svg" alt="W9 Labs"/><span class="brand-text">Mail</span></a><div class="nav-links">{nav}</div></div></nav><main class="app-main">{body}</main><footer class="footer"><img class="footer-logo" src="/w9-logo/workmark-transparent.svg" alt="W9 Labs"/><p>W9 Mail — Transactional Email Service</p><p class="text-xs text-muted">Microsoft E5 SMTP + Admin Panel</p></footer></div></body></html>"#,
+r#"<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><link rel="icon" type="image/svg+xml" href="/w9-logo/favicon.svg"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>{title} — W9 Mail</title><style>{CSS}</style></head><body><div class="app"><nav class="nav"><div class="nav-inner"><a href="/" class="brand"><img src="/w9-logo/workmark-transparent.svg" alt="W9 Labs"/><span class="brand-text">Mail</span></a><div class="nav-links">{nav}</div></div></nav><main class="app-main">{body}</main><footer class="footer"><img class="footer-logo" src="/w9-logo/workmark-transparent.svg" alt="W9 Labs"/><p>W9 Mail — Transactional Email Service</p><p class="text-xs text-muted">Microsoft E5 SMTP + Admin Panel</p></footer></div></body></html>"#,
         title = title, CSS = CSS, nav = nav, body = body
     )
 }
